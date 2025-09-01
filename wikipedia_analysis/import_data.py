@@ -1,35 +1,16 @@
 import xml.etree.ElementTree as ET
-from neo4j import GraphDatabase
 import sys
+import os
+from wikipedia_analysis.database import Neo4jConnectionManager, create_article_node
 
 # --- Configuration ---
 # Neo4j connection details
-uri = "bolt://localhost:7687"
-username = "neo4j"
-# IMPORTANT: Replace "your_password" with your actual Neo4j password
-password = "my_password"
+uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+username = os.getenv("NEO4J_USERNAME", "neo4j")
+password = os.getenv("NEO4J_PASSWORD", "my_password") # Consider using a more secure way to handle passwords
 
 # XML file path
 xml_file = "wikipedia_analysis/pages-articles.xml"
-
-# --- Neo4j Functions ---
-def create_article_node(tx, article_id, title, url):
-    """Creates an :Article node in Neo4j."""
-    query = """
-    MERGE (a:Article {id: $article_id})
-    SET a.title = $title, a.url = $url
-    """
-    tx.run(query, article_id=article_id, title=title, url=url)
-
-# This function is not used in this script but is kept for future use
-def create_citation_relationship(tx, source_id, target_id):
-    """Creates a [:CITES] relationship between two articles."""
-    query = """
-    MATCH (a:Article {id: $source_id})
-    MATCH (b:Article {id: $target_id})
-    MERGE (a)-[:CITES]->(b)
-    """
-    tx.run(query, source_id=source_id, target_id=target_id)
 
 # --- Main Parsing Logic ---
 def parse_xml_and_import_to_neo4j(xml_file_path):
@@ -42,11 +23,14 @@ def parse_xml_and_import_to_neo4j(xml_file_path):
     
     print("Connecting to Neo4j...")
     try:
-        with GraphDatabase.driver(uri, auth=(username, password)) as driver:
-            driver.verify_connectivity()
-            print("Connection successful.")
-            
+        with Neo4jConnectionManager(uri, username, password) as driver_manager:
+            driver = driver_manager.get_driver()
+            if not driver:
+                print("Failed to get Neo4j driver. Exiting.", file=sys.stderr)
+                return
+
             with driver.session() as session:
+                print("Connection successful.")
                 print(f"Starting to parse and import {xml_file_path}...")
                 # Use iterparse for memory-efficient, event-based parsing.
                 # We only care about the 'end' event for each element.
@@ -62,10 +46,20 @@ def parse_xml_and_import_to_neo4j(xml_file_path):
                             if not article_id or not title:
                                 continue
 
-                            url = f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"
+                            # Assuming 'url' is not directly in the XML, construct it or remove if not needed
+                            # For now, let's pass a placeholder or remove if create_article_node doesn't need it
+                            # The database.py create_article_node expects id, title, namespace, redirect_title, is_redirect
+                            # We need to adapt this. For now, let's just pass what we have and add defaults.
+                            article_data = {
+                                "id": article_id,
+                                "title": title,
+                                "namespace": "0", # Default namespace for articles
+                                "redirect_title": None,
+                                "is_redirect": False
+                            }
                             
                             # Write to Neo4j in a transaction
-                            session.write_transaction(create_article_node, article_id, title, url)
+                            session.write_transaction(create_article_node, article_data)
                             # Print progress to the console
                             print(f"Imported: {title}")
 
