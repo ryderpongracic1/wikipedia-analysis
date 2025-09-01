@@ -1,0 +1,29 @@
+<articles>
+    <article>
+        <title>Article 1</title>
+        <url>http://example.com/article1</url>
+        <extract>This is the extract for article 1.</extract>
+        <categories>
+            <category>Category A</category>
+            <category>Category B</category>
+        </categories>
+    </article>
+    <article>
+        <title>Article 2</title>
+        <url>http://example.com/article2</url>
+        <extract>This is the extract for article 2.</extract>
+        <categories>
+            <category>Category B</category>
+            <category>Category C</category>
+        </categories>
+    </article>
+    <article>
+        <title>Article 3</title>
+        <url>http://example.com/article3</url>
+        <extract>This is the extract for article 3.</extract>
+        <categories>
+            <category>Category A</category>
+            <category>Category C</category>
+        </categories>
+    </article>
+</articles>

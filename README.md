@@ -59,3 +59,41 @@ The top 20 most-cited articles.
 The top 20 most influential articles (based on PageRank score).
 
 The shortest "knowledge path" between example topics like "Graph theory" and "Social network".
+
+## Importer Usage
+
+The `wikipedia_analysis/import_with_links.py` script now includes category-parsing functionality.
+
+To run the importer:
+
+```bash
+python wikipedia_analysis/import_with_links.py [filename]
+```
+
+-   **`[filename]` (optional):** Specify the path to a Wikipedia XML dump file (e.g., `wikipedia_analysis/sample-articles.xml`).
+-   If no filename is provided, the script will default to looking for `wikipedia_analysis/pages-articles.xml`.
+
+## API Usage
+
+A Flask API server (`wikipedia_analysis/api.py`) is available to query the imported data.
+
+To start the API server:
+
+```bash
+python wikipedia_analysis/api.0py
+```
+
+The API will run on `http://127.0.0.1:5000/`.
+
+Available Endpoints:
+
+-   **`GET /categories`**: Returns a list of all unique categories found in the imported data.
+    Example `curl` command:
+    ```bash
+    curl http://127.0.0.1:5000/categories
+    ```
+
+-   **`GET /category/<category_name>`**: Returns a list of articles belonging to the specified category. Replace `<category_name>` with the actual category name (e.g., "Graph theory").
+    Example `curl` command:
+    ```bash
+    curl http://127.0.0.1:5000/category/Graph%20theory

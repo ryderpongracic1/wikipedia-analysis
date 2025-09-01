@@ -2,6 +2,7 @@ import xml.etree.ElementTree as ET
 from neo4j import GraphDatabase
 import sys
 import re
+from wikipedia_analysis.database import create_constraints_and_indexes
 
 # --- Configuration ---
 # Neo4j connection details
@@ -14,7 +15,7 @@ password = "my_password"
 xml_file = "wikipedia_analysis/pages-articles.xml"
 
 # --- Neo4j Functions ---
-def create_article_and_links(tx, article_id, title, links):
+def create_article_and_links(tx, article_id, title, links, categories):
     """
     Creates the source :Article node and merges relationships to target articles.
     This is designed to be highly efficient by processing links in a batch.
@@ -40,6 +41,16 @@ def create_article_and_links(tx, article_id, title, links):
         """
         tx.run(query_links, article_id=article_id, links=links)
 
+    # 3. Create or find category nodes and establish relationships
+    if categories:
+        query_categories = """
+        MATCH (source:Article {id: $article_id})
+        UNWIND $categories as category_name
+        MERGE (category:Category {name: category_name})
+        MERGE (source)-[:IN_CATEGORY]->(category)
+        """
+        tx.run(query_categories, article_id=article_id, categories=categories)
+
 # --- Main Parsing Logic ---
 def parse_wikitext_and_import(xml_file_path):
     """
@@ -56,6 +67,8 @@ def parse_wikitext_and_import(xml_file_path):
             print("Connection successful.")
             
             with driver.session() as session:
+                create_constraints_and_indexes(session)
+                print("Ensured Neo4j constraints and indexes are in place.")
                 print(f"Starting to parse and import links from {xml_file_path}...")
                 print("NOTE: This process will be significantly slower than the first import.")
 
@@ -80,6 +93,12 @@ def parse_wikitext_and_import(xml_file_path):
                             # This is a simplified pattern; wikitext is complex.
                             raw_links = re.findall(r'\[\[(.*?)\]\]', wikitext or "")
                             
+                            # Extract categories
+                            categories = set()
+                            category_matches = re.findall(r'\[\[Category:(.*?)(?:\|.*?)?\]\]', wikitext or "")
+                            for category in category_matches:
+                                categories.add(category.strip())
+
                             # Clean the links: remove pipe tricks, section links, and file/category links.
                             cleaned_links = set()
                             for link in raw_links:
@@ -94,10 +113,10 @@ def parse_wikitext_and_import(xml_file_path):
                                     cleaned_links.add(clean_link)
                             
                             # Write to Neo4j in a transaction
-                            session.write_transaction(create_article_and_links, article_id, title, list(cleaned_links))
+                            session.write_transaction(create_article_and_links, article_id, title, list(cleaned_links), list(categories))
                             
                             # Print progress
-                            print(f"Imported: '{title}' with {len(cleaned_links)} links.")
+                            print(f"Imported: '{title}' with {len(cleaned_links)} links and {len(categories)} categories.")
 
                         except AttributeError as e:
                             print(f"Skipping page due to parsing error: {e}", file=sys.stderr)
@@ -117,4 +136,9 @@ def parse_wikitext_and_import(xml_file_path):
 
 # --- Script Execution ---
 if __name__ == "__main__":
-    parse_wikitext_and_import(xml_file)
+    if len(sys.argv) > 1:
+        input_xml_file = sys.argv[1]
+    else:
+        input_xml_file = xml_file # Default from configuration
+    
+    parse_wikitext_and_import(input_xml_file)
