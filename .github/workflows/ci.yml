@@ -11,24 +11,69 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, '3.10', 3.11]
+    
+    services:
+      neo4j:
+        image: neo4j:4.4
+        env:
+          NEO4J_AUTH: neo4j/testpassword
+        ports:
+          - 7687:7687
+        options: >-
+          --health-cmd "cypher-shell -u neo4j -p testpassword 'RETURN 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.9
+      
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: ${{ matrix.python-version }}
+      
       - name: Install dependencies
         run: |
-          pip install pytest pytest-mock pytest-cov neo4j python-dotenv lxml testcontainers-neo4j
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+      
+      - name: Lint with flake8 (optional)
+        run: |
+          pip install flake8
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 wikipedia_analysis --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+          flake8 wikipedia_analysis --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        continue-on-error: true
+      
+      - name: Create test fixtures directory
+        run: |
+          mkdir -p tests/fixtures
+          cp wikipedia_analysis/sample-articles.xml tests/fixtures/sample_data.xml
+      
       - name: Run tests with coverage
-        run: pytest --cov=wikipedia_analysis --cov-report=xml --cov-report=term-missing
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage.xml
-      - name: Report coverage to Codecov
+        env:
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: testpassword
+        run: |
+          pytest tests/ --cov=wikipedia_analysis --cov-report=xml --cov-report=term-missing -v
+      
+      - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          token: ${{ secrets.CODECOV_TOKEN }} # Required for private repositories or if you want to associate with a specific project
-          fail_ci_if_error: true # Optional: Fail CI if Codecov upload fails
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+      
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-${{ matrix.python-version }}
+          path: coverage.xml
