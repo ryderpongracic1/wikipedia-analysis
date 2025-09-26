@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/" xml:lang="en">
+  <page>
+    <id>1</id>
+    <title>Graph theory</title>
+    <ns>0</ns>
+    <revision>
+      <id>1001</id>
+      <text xml:space="preserve">Graph theory is the study of [[graph]]s, which are mathematical structures used to model pairwise relations between objects. It has applications in [[Computer science]] and [[Mathematics]]. See also [[Category:Graph theory]].</text>
+    </revision>
+  </page>
+  <page>
+    <id>2</id>
+    <title>Computer science</title>
+    <ns>0</ns>
+    <revision>
+      <id>1002</id>
+      <text xml:space="preserve">Computer science is an academic field and professional practice that studies algorithms and computational systems. It relates to [[Mathematics]] and [[Graph theory]]. See also [[Category:Computer science]].</text>
+    </revision>
+  </page>
+  <page>
+    <id>3</id>
+    <title>Mathematics</title>
+    <ns>0</ns>
+    <revision>
+      <id>1003</id>
+      <text xml:space="preserve">Mathematics includes the study of such topics as quantity, structure, space, and change. Related fields include [[Computer science]] and [[Graph theory]]. See also [[Category:Mathematics]].</text>
+    </revision>
+  </page>
+  <page>
+    <id>4</id>
+    <title>Social network</title>
+    <ns>0</ns>
+    <revision>
+      <id>1004</id>
+      <text xml:space="preserve">A social network is a social structure made up of individuals connected by relationships. This concept is studied using [[Graph theory]] and [[Computer science]]. See also [[Category:Social networks]].</text>
+    </revision>
+  </page>
+  <page>
+    <id>101</id>
+    <title>Category:Graph theory</title>
+    <ns>14</ns>
+    <revision>
+      <id>2001</id>
+      <text xml:space="preserve">This category contains articles related to graph theory.</text>
+    </revision>
+  </page>
+  <page>
+    <id>102</id>
+    <title>Category:Computer science</title>
+    <ns>14</ns>
+    <revision>
+      <id>2002</id>
+      <text xml:space="preserve">This category contains articles related to computer science.</text>
+    </revision>
+  </page>
+  <page>
+    <id>103</id>
+    <title>Category:Mathematics</title>
+    <ns>14</ns>
+    <revision>
+      <id>2003</id>
+      <text xml:space="preserve">This category contains articles related to mathematics.</text>
+    </revision>
+  </page>
+  <page>
+    <id>104</id>
+    <title>Category:Social networks</title>
+    <ns>14</ns>
+    <revision>
+      <id>2004</id>
+      <text xml:space="preserve">This category contains articles related to social networks.</text>
+    </revision>
+  </page>
+</mediawiki>
