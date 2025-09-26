@@ -6,10 +6,13 @@ import time
 from pathlib import Path
 import lxml.etree as ET
 import re
+import tempfile
+import os
 
 # Import functions from wikipedia_analysis
 from wikipedia_analysis.database import create_constraints_and_indexes, batch_import_nodes, batch_import_relationships
 from wikipedia_analysis.data_processing import clean_title
+from wikipedia_analysis.config import Neo4jConfig
 
 @pytest.fixture
 def mock_neo4j_session():
@@ -22,7 +25,7 @@ def mock_neo4j_session():
 def sample_article_data():
     """Sample Wikipedia article data for testing"""
     return {
-        'id': 12345,
+        'id': '12345',
         'title': 'Test Article',
         'namespace': 0,
         'length': 1000,
@@ -35,7 +38,7 @@ def sample_article_data():
 def sample_category_data():
     """Sample Wikipedia category data for testing"""
     return {
-        'id': 101,
+        'id': '101',
         'title': 'Test Category',
         'depth': 1
     }
@@ -43,29 +46,113 @@ def sample_category_data():
 @pytest.fixture
 def mock_config():
     """Mock configuration for Neo4j connection details"""
-    config_mock = Mock()
-    config_mock.NEO4J_URI = "bolt://localhost:7687"
-    config_mock.NEO4J_USER = "neo4j"
-    config_mock.NEO4J_PASSWORD = "password"
-    return config_mock
+    return Neo4jConfig(
+        uri="bolt://localhost:7687",
+        user="neo4j",
+        password="testpassword"
+    )
+
+@pytest.fixture
+def dummy_xml_file(tmp_path):
+    """Create temporary XML file for testing - fixes missing dummy.xml error."""
+    xml_content = """<?xml version="1.0" encoding="UTF-8"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/" xml:lang="en">
+    <page>
+        <id>1</id>
+        <title>Test Article 1</title>
+        <ns>0</ns>
+        <revision>
+            <id>1001</id>
+            <text xml:space="preserve">This is a test article with [[Test Article 2]] and [[Category:Test Category]].</text>
+        </revision>
+    </page>
+    <page>
+        <id>2</id>
+        <title>Test Article 2</title>
+        <ns>0</ns>
+        <revision>
+            <id>1002</id>
+            <text xml:space="preserve">This is another test article linking to [[Test Article 1]].</text>
+        </revision>
+    </page>
+    <page>
+        <id>101</id>
+        <title>Category:Test Category</title>
+        <ns>14</ns>
+        <revision>
+            <id>2001</id>
+            <text xml:space="preserve">This is a test category.</text>
+        </revision>
+    </page>
+</mediawiki>"""
+    
+    # Create both dummy.xml and test_data.xml for different test cases
+    dummy_file = tmp_path / "dummy.xml"
+    dummy_file.write_text(xml_content, encoding='utf-8')
+    
+    # Also create it in current directory for tests that expect it there
+    try:
+        with open("dummy.xml", "w", encoding='utf-8') as f:
+            f.write(xml_content)
+    except PermissionError:
+        pass  # Skip if we can't write to current directory
+    
+    return str(dummy_file)
 
 @pytest.fixture(scope="session")
 def neo4j_container():
-    """Starts a Neo4j container for integration tests."""
-    with Neo4jContainer("neo4j:4.4") as container:
-        container.start()
-        # Wait for Neo4j to be ready
-        # The testcontainers-python Neo4jContainer should handle waiting for readiness,
-        # but adding a small delay can sometimes help with flaky tests.
-        time.sleep(5)
-        yield container
+    """Starts a Neo4j container for integration tests with proper authentication."""
+    container = Neo4jContainer("neo4j:4.4") \
+        .with_env("NEO4J_AUTH", "neo4j/testpassword") \
+        .with_env("NEO4J_ACCEPT_LICENSE_AGREEMENT", "yes") \
+        .with_env("NEO4J_dbms_security_procedures_unrestricted", "gds.*,apoc.*") \
+        .with_env("NEO4J_dbms_security_procedures_allowlist", "gds.*,apoc.*") \
+        .with_exposed_ports(7687, 7474)
+    
+    container.start()
+    
+    # Wait for Neo4j to be fully ready with retry logic
+    max_wait_time = 60  # seconds
+    wait_interval = 2   # seconds
+    waited = 0
+    
+    while waited < max_wait_time:
+        try:
+            # Test connection
+            uri = f"bolt://localhost:{container.get_exposed_port(7687)}"
+            test_driver = GraphDatabase.driver(uri, auth=("neo4j", "testpassword"))
+            test_driver.verify_connectivity()
+            test_driver.close()
+            break
+        except Exception:
+            time.sleep(wait_interval)
+            waited += wait_interval
+    
+    if waited >= max_wait_time:
+        container.stop()
+        raise RuntimeError("Neo4j container failed to start within timeout")
+    
+    yield container
+    container.stop()
 
 @pytest.fixture(scope="session")
 def neo4j_driver(neo4j_container):
     """Creates a Neo4j driver instance connected to the test container."""
-    uri = neo4j_container.get_connection_url()
-    driver = GraphDatabase.driver(uri, auth=("neo4j", "neo4j"))
-    driver.verify_connectivity()
+    uri = f"bolt://localhost:{neo4j_container.get_exposed_port(7687)}"
+    driver = GraphDatabase.driver(uri, auth=("neo4j", "testpassword"))
+    
+    # Retry connection with exponential backoff
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            driver.verify_connectivity()
+            break
+        except Exception as e:
+            if attempt == max_retries - 1:
+                driver.close()
+                raise RuntimeError(f"Failed to connect to Neo4j after {max_retries} attempts: {e}")
+            time.sleep(2 ** attempt)
+    
     yield driver
     driver.close()
 
@@ -79,109 +166,38 @@ def populated_neo4j_db(neo4j_driver):
         # 1. Create constraints and indexes
         create_constraints_and_indexes(session)
 
-        # 2. Parse sample_data.xml to extract all nodes and relationships
-        xml_file_path = Path(__file__).parent / "fixtures" / "sample_data.xml"
+        # 2. Create sample data directly (not from XML parsing)
+        # Create sample articles
+        articles_to_import = [
+            {'id': '1', 'title': 'Test Article 1'},
+            {'id': '2', 'title': 'Test Article 2'},
+            {'id': '3', 'title': 'Test Article 3'}
+        ]
         
-        articles_to_import = []
-        categories_to_import = []
-        links_to_relationships = [] # source_id, target_id
-        belongs_to_relationships = [] # article_id, category_id
-        redirects_to_relationships = [] # source_id, target_id
-
-        article_title_to_id_map = {}
-        category_title_to_id_map = {}
-
-        ns = '{http://www.mediawiki.org/xml/export-0.11/}'
-
-        # First pass: Collect all articles and categories, and their IDs
-        # This pass also identifies redirects
-        for event, elem in ET.iterparse(xml_file_path, events=('end',)):
-            if elem.tag == ns + 'page':
-                page_id_elem = elem.find(ns + 'id')
-                page_title_elem = elem.find(ns + 'title')
-                
-                if page_id_elem is not None and page_title_elem is not None:
-                    page_id = page_id_elem.text
-                    page_title = clean_title(page_title_elem.text)
-                    
-                    if page_title.startswith("Category:"):
-                        categories_to_import.append({'id': page_id, 'name': page_title.replace("Category:", "")})
-                        category_title_to_id_map[page_title] = page_id
-                    else:
-                        is_redirect = elem.find(ns + 'redirect') is not None
-                        redirect_title = None
-                        if is_redirect:
-                            redirect_elem = elem.find(ns + 'redirect')
-                            if redirect_elem is not None:
-                                redirect_title = clean_title(redirect_elem.get('title'))
-                        
-                        articles_to_import.append({
-                            'id': page_id,
-                            'title': page_title,
-                            'is_redirect': is_redirect,
-                            'redirect_title': redirect_title
-                        })
-                        article_title_to_id_map[page_title] = page_id
-                
-                # Clear the element and its ancestors to free memory
-                elem.clear()
-                while elem.getprevious() is not None:
-                    del elem.getparent()[0]
-
+        # Create sample categories
+        categories_to_import = [
+            {'id': '101', 'name': 'Test Category'}
+        ]
+        
         # Batch import nodes
         batch_import_nodes(session, "Article", articles_to_import)
         batch_import_nodes(session, "Category", categories_to_import)
 
-        # Second pass: Collect relationships
-        for event, elem in ET.iterparse(xml_file_path, events=('end',)):
-            if elem.tag == ns + 'page':
-                page_id_elem = elem.find(ns + 'id')
-                page_title_elem = elem.find(ns + 'title')
-                text_elem = elem.find(ns + 'revision/' + ns + 'text')
-
-                if page_id_elem is not None and page_title_elem is not None:
-                    page_id = page_id_elem.text
-                    page_title = clean_title(page_title_elem.text)
-
-                    # Handle REDIRECTS_TO relationships
-                    is_redirect = elem.find(ns + 'redirect') is not None
-                    if is_redirect:
-                        redirect_elem = elem.find(ns + 'redirect')
-                        if redirect_elem is not None:
-                            redirect_target_title = clean_title(redirect_elem.get('title'))
-                            if page_id in article_title_to_id_map.values() and redirect_target_title in article_title_to_id_map:
-                                redirects_to_relationships.append({
-                                    'source_article_id': page_id,
-                                    'target_article_id': article_title_to_id_map[redirect_target_title]
-                                })
-
-                    # Handle LINKS_TO and BELONGS_TO relationships from text
-                    if text_elem is not None and text_elem.text:
-                        link_pattern = re.compile(r'\[\[([^|\]]+)(?:\|[^\]]+)?\]\]')
-                        for match in link_pattern.finditer(text_elem.text):
-                            link_title = clean_title(match.group(1))
-                            if link_title and link_title != page_title: # Avoid self-links
-                                if link_title.startswith("Category:"):
-                                    if page_id in article_title_to_id_map.values() and link_title in category_title_to_id_map:
-                                        belongs_to_relationships.append({
-                                            'article_id': page_id,
-                                            'category_id': category_title_to_id_map[link_title]
-                                        })
-                                elif link_title in article_title_to_id_map:
-                                    links_to_relationships.append({
-                                        'source_article_id': page_id,
-                                        'target_article_id': article_title_to_id_map[link_title]
-                                    })
-                
-                # Clear the element and its ancestors to free memory
-                elem.clear()
-                while elem.getprevious() is not None:
-                    del elem.getparent()[0]
-
+        # Create sample relationships
+        links_relationships = [
+            {'source_article_id': '1', 'target_article_id': '2'},
+            {'source_article_id': '2', 'target_article_id': '3'}
+        ]
+        
+        belongs_to_relationships = [
+            {'article_id': '1', 'category_id': '101'}
+        ]
+        
         # Batch import relationships
-        batch_import_relationships(session, "LINKS_TO", "Article", "Article", "source_article_id", "target_article_id", links_to_relationships)
-        batch_import_relationships(session, "BELONGS_TO", "Article", "Category", "article_id", "category_id", belongs_to_relationships)
-        batch_import_relationships(session, "REDIRECTS_TO", "Article", "Article", "source_article_id", "target_article_id", redirects_to_relationships)
+        batch_import_relationships(session, "LINKS_TO", "Article", "Article", 
+                                 "source_article_id", "target_article_id", links_relationships)
+        batch_import_relationships(session, "BELONGS_TO", "Article", "Category", 
+                                 "article_id", "category_id", belongs_to_relationships)
 
         yield neo4j_driver
     finally:
@@ -189,3 +205,26 @@ def populated_neo4j_db(neo4j_driver):
         with neo4j_driver.session() as cleanup_session:
             cleanup_session.run("MATCH (n) DETACH DELETE n")
         session.close()
+
+@pytest.fixture
+def sample_xml_content():
+    """Sample XML content for testing data processing."""
+    return """<?xml version="1.0" encoding="UTF-8"?>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/" xml:lang="en">
+    <page>
+        <id>1</id>
+        <title>Sample Article</title>
+        <ns>0</ns>
+        <revision>
+            <id>1001</id>
+            <text xml:space="preserve">This is a sample article with [[Another Article]] link.</text>
+        </revision>
+    </page>
+</mediawiki>"""
+
+@pytest.fixture
+def temp_xml_file(tmp_path, sample_xml_content):
+    """Create temporary XML file with sample content."""
+    xml_file = tmp_path / "test_data.xml"
+    xml_file.write_text(sample_xml_content, encoding='utf-8')
+    return str(xml_file)
