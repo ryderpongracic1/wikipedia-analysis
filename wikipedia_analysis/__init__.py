@@ -8,9 +8,19 @@ __version__ = "1.0.0"
 __author__ = "Ryder Pongracic"
 __email__ = "ryderjpm@gmail.com"
 
+# Import configuration first
+from .config import load_neo4j_config, Neo4jConfig, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
+
 # Import main functionality for easy access
 from .database import create_constraints_and_indexes, batch_import_nodes, batch_import_relationships
-from .data_processing import clean_title, parse_dump_file, batch_data
+from .data_processing import (
+    clean_title, 
+    parse_dump_file, 
+    batch_data,
+    validate_length,
+    transform_to_article_node,
+    transform_to_category_node
+)
 from .queries import (
     build_article_query,
     build_category_query,
@@ -27,10 +37,17 @@ from .analysis import (
     detect_communities,
     calculate_centrality,
     export_results,
-    measure_performance
+    measure_performance,
+    gds  # Include gds for backward compatibility
 )
 
 __all__ = [
+    # Configuration
+    'load_neo4j_config',
+    'Neo4jConfig',
+    'NEO4J_URI',
+    'NEO4J_USER', 
+    'NEO4J_PASSWORD',
     # Database functions
     'create_constraints_and_indexes',
     'batch_import_nodes', 
@@ -39,6 +56,9 @@ __all__ = [
     'clean_title',
     'parse_dump_file',
     'batch_data',
+    'validate_length',
+    'transform_to_article_node',
+    'transform_to_category_node',
     # Query building functions
     'build_article_query',
     'build_category_query',
@@ -54,5 +74,6 @@ __all__ = [
     'detect_communities',
     'calculate_centrality',
     'export_results',
-    'measure_performance'
+    'measure_performance',
+    'gds'
 ]
