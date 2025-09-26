@@ -21,13 +21,17 @@ jobs:
         image: neo4j:4.4
         env:
           NEO4J_AUTH: neo4j/testpassword
+          NEO4J_ACCEPT_LICENSE_AGREEMENT: yes
+          NEO4J_dbms_security_procedures_unrestricted: "gds.*,apoc.*"
+          NEO4J_dbms_security_procedures_allowlist: "gds.*,apoc.*"
         ports:
           - 7687:7687
+          - 7474:7474
         options: >-
           --health-cmd "cypher-shell -u neo4j -p testpassword 'RETURN 1'"
           --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-timeout 10s
+          --health-retries 10
     
     steps:
       - name: Checkout code
@@ -42,13 +46,14 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-
             ${{ runner.os }}-pip-
       
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
           pip install -e .
       
@@ -61,10 +66,30 @@ jobs:
           flake8 wikipedia_analysis --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         continue-on-error: true
       
-      - name: Create test fixtures directory
+      - name: Wait for Neo4j to be ready
+        run: |
+          echo "Waiting for Neo4j to be ready..."
+          timeout 120s bash -c 'until cypher-shell -u neo4j -p testpassword "RETURN 1" > /dev/null 2>&1; do sleep 2; done'
+          echo "Neo4j is ready!"
+      
+      - name: Create test fixtures and directories
         run: |
           mkdir -p tests/fixtures
           cp wikipedia_analysis/sample-articles.xml tests/fixtures/sample_data.xml
+          # Create dummy.xml file for tests that need it
+          cat > dummy.xml << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/" xml:lang="en">
+              <page>
+                  <id>1</id>
+                  <title>Test Article</title>
+                  <ns>0</ns>
+                  <revision>
+                      <text xml:space="preserve">Test content with [[Link]].</text>
+                  </revision>
+              </page>
+          </mediawiki>
+          EOF
       
       - name: Run tests with coverage
         env:
@@ -72,7 +97,14 @@ jobs:
           NEO4J_USER: neo4j
           NEO4J_PASSWORD: testpassword
         run: |
-          pytest tests/ --cov=wikipedia_analysis --cov-report=xml --cov-report=term-missing -v --tb=short
+          python -m pytest tests/ \
+            --cov=wikipedia_analysis \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v \
+            --tb=short \
+            --maxfail=10 \
+            --timeout=300
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -89,3 +121,12 @@ jobs:
           name: coverage-report-${{ matrix.python-version }}
           path: coverage.xml
         if: always()
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: |
+            tests/
+            dummy.xml
+        if: failure()
