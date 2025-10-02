@@ -66,40 +66,27 @@ jobs:
           flake8 wikipedia_analysis --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         continue-on-error: true
       
-      - name: Wait for Neo4j to be ready (install client + diagnostics)
+      - name: Wait for Neo4j to be ready (HTTP+TCP probe)
         run: |
-          echo "Waiting for Neo4j to be ready (install client + diagnostics)..."
-          set -x
-          echo "Attempting to install cypher-shell (Neo4j 4.4 client) to /usr/local/bin if not present..."
-          if ! command -v cypher-shell >/dev/null 2>&1; then
-            NEO4J_CLIENT_VERSION=4.4.46
-            TMPDIR=$(mktemp -d)
-            curl -fsSL "https://dist.neo4j.org/neo4j-community-${NEO4J_CLIENT_VERSION}-unix.tar.gz" -o "$TMPDIR/neo4j.tar.gz" || true
-            if [ -f "$TMPDIR/neo4j.tar.gz" ]; then
-              tar -xzf "$TMPDIR/neo4j.tar.gz" -C "$TMPDIR" || true
-              if [ -f "$TMPDIR/neo4j-community-${NEO4J_CLIENT_VERSION}/bin/cypher-shell" ]; then
-                sudo cp "$TMPDIR/neo4j-community-${NEO4J_CLIENT_VERSION}/bin/cypher-shell" /usr/local/bin/ || true
-                sudo chmod +x /usr/local/bin/cypher-shell || true
+          echo "Waiting for Neo4j to be ready via HTTP+TCP (no cypher-shell)..."
+          # Use a plain loop with an explicit timeout so shell options won't cause early exit.
+          START=$SECONDS
+          TIMEOUT_SECS=300
+          INTERVAL=2
+          while [ $((SECONDS - START)) -lt $TIMEOUT_SECS ]; do
+            # Check HTTP endpoint
+            if curl -fsS http://localhost:7474/ >/dev/null 2>&1; then
+              # Check Bolt port by opening a TCP connection briefly
+              if timeout 1 bash -c "cat < /dev/null > /dev/tcp/localhost/7687" >/dev/null 2>&1; then
+                echo "Neo4j HTTP and Bolt ports are reachable."
+                echo "Neo4j is ready!"
+                exit 0
               fi
             fi
-          fi
-          echo "Checking for cypher-shell on PATH:"
-          command -v cypher-shell || true
-          echo "If present, cypher-shell --version output (or error):"
-          cypher-shell --version || true
-          echo "HTTP endpoint (7474) response (or error):"
-          curl -sS http://localhost:7474/ || true
-          echo "Open TCP listeners (showing ports):"
-          ss -lnt || true
-          echo "Retrying readiness loop (timeout 300s) using cypher-shell if available, otherwise HTTP+TCP probes..."
-          timeout 300s bash -c '
-            if command -v cypher-shell >/dev/null 2>&1; then
-              until cypher-shell -u neo4j -p testpassword "RETURN 1" >/dev/null 2>&1; do sleep 2; done
-            else
-              until curl -fsS http://localhost:7474/ >/dev/null 2>&1 && timeout 1 bash -c "cat < /dev/null > /dev/tcp/localhost/7687" >/dev/null 2>&1; do sleep 2; done
-            fi
-          ' || { echo "Readiness check failed or timed out"; exit 124; }
-          echo "Neo4j is ready!"
+            sleep $INTERVAL
+          done
+          echo "Neo4j did not become ready within ${TIMEOUT_SECS}s"
+          exit 124
       
       - name: Create test fixtures and directories
         run: |
