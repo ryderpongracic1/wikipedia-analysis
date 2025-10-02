@@ -66,10 +66,20 @@ jobs:
           flake8 wikipedia_analysis --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
         continue-on-error: true
       
-      - name: Wait for Neo4j to be ready
+      - name: Wait for Neo4j to be ready (with diagnostics)
         run: |
-          echo "Waiting for Neo4j to be ready..."
-          timeout 120s bash -c 'until cypher-shell -u neo4j -p testpassword "RETURN 1" > /dev/null 2>&1; do sleep 2; done'
+          echo "Waiting for Neo4j to be ready (diagnostics enabled)..."
+          set -x
+          echo "Checking for cypher-shell on PATH:"
+          command -v cypher-shell || true
+          echo "If present, cypher-shell --version output (or error):"
+          cypher-shell --version || true
+          echo "HTTP endpoint (7474) response (or error):"
+          curl -sS http://localhost:7474/ || true
+          echo "Open TCP listeners (showing ports):"
+          ss -lnt || true
+          echo "Retrying readiness loop (timeout 300s)..."
+          timeout 300s bash -c 'until cypher-shell -u neo4j -p testpassword "RETURN 1" > /dev/null 2>&1; do sleep 2; done' || { echo "Readiness check failed or timed out"; exit 124; }
           echo "Neo4j is ready!"
       
       - name: Create test fixtures and directories
