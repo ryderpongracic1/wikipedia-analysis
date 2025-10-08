@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 from neo4j import GraphDatabase
 from wikipedia_analysis.database import Neo4jConnectionManager, create_article_node, create_category_node, \
     create_links_to_relationship, create_belongs_to_relationship, create_redirects_to_relationship, \
@@ -8,7 +8,7 @@ from wikipedia_analysis.database import Neo4jConnectionManager, create_article_n
 # Test Neo4j connection establishment and teardown
 def test_connection_manager_connect_success(mock_config):
     with patch('neo4j.GraphDatabase.driver') as mock_driver:
-        mock_driver_instance = Mock()
+        mock_driver_instance = MagicMock()
         mock_driver.return_value = mock_driver_instance
         
         manager = Neo4jConnectionManager(mock_config.NEO4J_URI, mock_config.NEO4J_USER, mock_config.NEO4J_PASSWORD)
@@ -20,7 +20,7 @@ def test_connection_manager_connect_success(mock_config):
 
 def test_connection_manager_connect_failure(mock_config):
     with patch('neo4j.GraphDatabase.driver') as mock_driver:
-        mock_driver_instance = Mock()
+        mock_driver_instance = MagicMock()
         mock_driver_instance.verify_connectivity.side_effect = Exception("Connection failed")
         mock_driver.return_value = mock_driver_instance
         
@@ -34,7 +34,7 @@ def test_connection_manager_connect_failure(mock_config):
 
 def test_connection_manager_close(mock_config):
     with patch('neo4j.GraphDatabase.driver') as mock_driver:
-        mock_driver_instance = Mock()
+        mock_driver_instance = MagicMock()
         mock_driver.return_value = mock_driver_instance
         
         manager = Neo4jConnectionManager(mock_config.NEO4J_URI, mock_config.NEO4J_USER, mock_config.NEO4J_PASSWORD)
@@ -46,7 +46,7 @@ def test_connection_manager_close(mock_config):
 
 def test_connection_manager_context_manager(mock_config):
     with patch('neo4j.GraphDatabase.driver') as mock_driver:
-        mock_driver_instance = Mock()
+        mock_driver_instance = MagicMock()
         mock_driver.return_value = mock_driver_instance
         
         with Neo4jConnectionManager(mock_config.NEO4J_URI, mock_config.NEO4J_USER, mock_config.NEO4J_PASSWORD) as manager:
@@ -179,8 +179,8 @@ def test_batch_import_relationships_empty_list(mock_neo4j_session):
 # Test transaction handling and rollback scenarios
 def test_transaction_success(mock_config):
     with patch('neo4j.GraphDatabase.driver') as mock_driver:
-        mock_driver_instance = Mock()
-        mock_session = Mock()
+        mock_driver_instance = MagicMock()
+        mock_session = MagicMock()
         mock_transaction = Mock()
 
         mock_driver.return_value = mock_driver_instance
@@ -197,8 +197,8 @@ def test_transaction_success(mock_config):
 
 def test_transaction_rollback_on_failure(mock_config):
     with patch('neo4j.GraphDatabase.driver') as mock_driver:
-        mock_driver_instance = Mock()
-        mock_session = Mock()
+        mock_driver_instance = MagicMock()
+        mock_session = MagicMock()
         mock_transaction = Mock()
 
         mock_driver.return_value = mock_driver_instance

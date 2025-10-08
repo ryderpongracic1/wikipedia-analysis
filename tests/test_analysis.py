@@ -23,9 +23,16 @@ def mock_gds_util_asNode(node_id):
 @pytest.fixture(autouse=True)
 def mock_gds_util(monkeypatch):
     """
-    Fixture to mock gds.util.asNode globally for tests in this module.
+    Fixture to replace analysis.gds with a test-double that exposes util.asNode,
+    avoiding issues when the real client's `util` is a property/descriptor.
     """
-    monkeypatch.setattr(analysis.gds.util, "asNode", mock_gds_util_asNode)
+    class _TestGDS:
+        class util:
+            @staticmethod
+            def asNode(node_id):
+                return mock_gds_util_asNode(node_id)
+    # Replace the entire gds object on the analysis module with our test double.
+    monkeypatch.setattr(analysis, "gds", _TestGDS())
 
 class MockRecord:
     def __init__(self, data):

@@ -109,7 +109,7 @@ def test_parse_dump_file_correctly_extracts_articles_and_links(sample_xml_conten
         
         articles = list(parse_dump_file(dummy_file_path))
         
-        assert len(articles) == 5 # Article A, B, Category, Redirect, Empty Page, Self Link Test (no ID/title skipped)
+        assert len(articles) == 6 # Article A, B, Category, Redirect, Empty Page, Self Link Test (no ID/title skipped)
 
         article_a = next(a for a in articles if a['id'] == '1')
         assert article_a['title'] == 'Article A'
@@ -151,7 +151,7 @@ def test_parse_dump_file_handles_missing_id_or_title(sample_xml_content):
         # Pages with no ID or no title should be skipped
         assert not any('Page with no ID' in a['title'] for a in articles if 'title' in a)
         assert not any('Page with no title' in a['title'] for a in articles if 'title' in a)
-        assert len(articles) == 5 # Only valid pages should be processed
+        assert len(articles) == 6 # Only valid pages should be processed
 
 # --- Test data cleaning and validation functions ---
 def test_clean_title():
