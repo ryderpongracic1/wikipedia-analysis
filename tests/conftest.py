@@ -165,51 +165,59 @@ def neo4j_driver(neo4j_container):
 def populated_neo4j_db(neo4j_driver):
     """
     Populates the Neo4j test database with sample data and ensures cleanup.
+    Uses context-managed sessions to ensure sessions are closed cleanly.
     """
-    session = neo4j_driver.session()
     try:
-        # 1. Create constraints and indexes
-        create_constraints_and_indexes(session)
+        with neo4j_driver.session() as session:
+            # 1. Create constraints and indexes
+            create_constraints_and_indexes(session)
 
-        # 2. Create sample data directly (not from XML parsing)
-        # Create sample articles
-        articles_to_import = [
-            {'id': '1', 'title': 'Test Article 1'},
-            {'id': '2', 'title': 'Test Article 2'},
-            {'id': '3', 'title': 'Test Article 3'}
-        ]
-        
-        # Create sample categories
-        categories_to_import = [
-            {'id': '101', 'name': 'Test Category'}
-        ]
-        
-        # Batch import nodes
-        batch_import_nodes(session, "Article", articles_to_import)
-        batch_import_nodes(session, "Category", categories_to_import)
+            # 2. Create sample data directly (not from XML parsing)
+            # Create sample articles
+            articles_to_import = [
+                {'id': '1', 'title': 'Test Article 1'},
+                {'id': '2', 'title': 'Test Article 2'},
+                {'id': '3', 'title': 'Test Article 3'}
+            ]
+            
+            # Create sample categories
+            categories_to_import = [
+                {'id': '101', 'name': 'Test Category'}
+            ]
+            
+            # Batch import nodes
+            batch_import_nodes(session, "Article", articles_to_import)
+            batch_import_nodes(session, "Category", categories_to_import)
 
-        # Create sample relationships
-        links_relationships = [
-            {'source_article_id': '1', 'target_article_id': '2'},
-            {'source_article_id': '2', 'target_article_id': '3'}
-        ]
-        
-        belongs_to_relationships = [
-            {'article_id': '1', 'category_id': '101'}
-        ]
-        
-        # Batch import relationships
-        batch_import_relationships(session, "LINKS_TO", "Article", "Article", 
-                                 "source_article_id", "target_article_id", links_relationships)
-        batch_import_relationships(session, "BELONGS_TO", "Article", "Category", 
-                                 "article_id", "category_id", belongs_to_relationships)
+            # Create sample relationships
+            links_relationships = [
+                {'source_article_id': '1', 'target_article_id': '2'},
+                {'source_article_id': '2', 'target_article_id': '3'}
+            ]
+            
+            belongs_to_relationships = [
+                {'article_id': '1', 'category_id': '101'}
+            ]
+            
+            # Batch import relationships
+            batch_import_relationships(
+                session,
+                "LINKS_TO", "Article", "Article",
+                "source_article_id", "target_article_id",
+                links_relationships
+            )
+            batch_import_relationships(
+                session,
+                "BELONGS_TO", "Article", "Category",
+                "article_id", "category_id",
+                belongs_to_relationships
+            )
 
         yield neo4j_driver
     finally:
-        # Cleanup: Clear the database
+        # Cleanup: Clear the database using a context-managed session
         with neo4j_driver.session() as cleanup_session:
             cleanup_session.run("MATCH (n) DETACH DELETE n")
-        session.close()
 
 @pytest.fixture
 def sample_xml_content():
