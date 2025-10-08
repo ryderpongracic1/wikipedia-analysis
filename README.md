@@ -60,7 +60,20 @@ The top 20 most influential articles (based on PageRank score).
 
 The shortest "knowledge path" between example topics like "Graph theory" and "Social network".
 
-## Importer Usage
+Testing & CI
+We changed the CI behavior to avoid flaky Neo4j container startup failures in GitHub Actions.
+
+- CI default behavior: Unit tests run by default in CI. Integration tests (marked with @pytest.mark.integration) are skipped in the main test step.
+- Integration tests: Marked with the pytest marker `integration`. These tests require Docker to run and are executed in CI only if Docker is available. The CI workflow will run them conditionally and will not fail the pipeline if integration tests are unavailable or flaky.
+- Registered markers: Markers are registered in [`pytest.ini`](pytest.ini:1) so pytest will not emit unknown-mark warnings.
+- Running tests locally:
+  - Unit tests only: python -m pytest tests/ -m "not integration"
+  - Integration tests only (requires Docker): python -m pytest tests/ -m "integration"
+
+- If you want CI to run integration tests reliably, ensure Docker is available and consider increasing container startup timeouts (see `tests/conftest.py`).
+- Note: The populated Neo4j DB fixture now uses context-managed sessions to ensure sessions are closed cleanly and to avoid DeprecationWarnings (see `tests/conftest.py`).
+
+Importer Usage
 
 The `wikipedia_analysis/import_with_links.py` script now includes category-parsing functionality.
 
@@ -73,14 +86,14 @@ python wikipedia_analysis/import_with_links.py [filename]
 -   **`[filename]` (optional):** Specify the path to a Wikipedia XML dump file (e.g., `wikipedia_analysis/sample-articles.xml`).
 -   If no filename is provided, the script will default to looking for `wikipedia_analysis/pages-articles.xml`.
 
-## API Usage
+API Usage
 
 A Flask API server (`wikipedia_analysis/api.py`) is available to query the imported data.
 
 To start the API server:
 
 ```bash
-python wikipedia_analysis/api.0py
+python wikipedia_analysis/api.py
 ```
 
 The API will run on `http://127.0.0.1:5000/`.
