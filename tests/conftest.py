@@ -102,6 +102,11 @@ def dummy_xml_file(tmp_path):
 @pytest.fixture(scope="session")
 def neo4j_container():
     """Starts a Neo4j container for integration tests with proper authentication."""
+    # Skip integration container startup if Docker is not available on the host.
+    docker_socket = "/var/run/docker.sock"
+    if not (os.environ.get("DOCKER_HOST") or os.path.exists(docker_socket)):
+        pytest.skip("Docker not available; skipping Neo4j integration tests.")
+
     container = Neo4jContainer("neo4j:4.4") \
         .with_env("NEO4J_AUTH", "neo4j/testpassword") \
         .with_env("NEO4J_ACCEPT_LICENSE_AGREEMENT", "yes") \

@@ -7,9 +7,11 @@ def build_article_query(title=None, namespace=None, length=None):
     match_clauses = []
     if title:
         match_clauses.append(f"title: '{title}'")
-    if namespace:
+    # Accept 0 as a valid namespace value by checking against None
+    if namespace is not None:
         match_clauses.append(f"namespace: {namespace}")
-    if length:
+    # Accept 0 as a valid length value by checking against None
+    if length is not None:
         match_clauses.append(f"length: {length}")
 
     if match_clauses:
