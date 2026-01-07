@@ -4,13 +4,14 @@ import json
 import csv
 import time
 import builtins
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable, Tuple, Union
 
-# Ensure certain common modules are available to test modules that (oddly)
-# reference them without importing. Tests in this repository reference `json`,
-# `csv`, and `time` at module scope in some places, so expose them on the
-# builtins module so `json`, `csv`, and `time` resolve during tests.
-# This is a pragmatic compatibility shim for the test-suite.
+# ==========================================
+# Compatibility Shim for Test Suite
+# ==========================================
+# Ensure certain common modules are available to test modules that reference 
+# them at module scope without importing. This is a pragmatic compatibility 
+# shim for the specific requirements of the repository's test suite.
 if not hasattr(builtins, "json"):
     builtins.json = json
 if not hasattr(builtins, "csv"):
@@ -18,7 +19,10 @@ if not hasattr(builtins, "csv"):
 if not hasattr(builtins, "time"):
     builtins.time = time
 
-# Try to import Neo4j GDS, provide fallback if not available
+
+# ==========================================
+# GDS Library & Mock Setup
+# ==========================================
 try:
     from graphdatascience import GraphDataScience
     GDS_AVAILABLE = True
@@ -26,62 +30,64 @@ except ImportError:
     GDS_AVAILABLE = False
 
 class MockGDS:
-    """Mock GDS for testing when library unavailable."""
-    
+    """Mock GDS for testing when the library is unavailable."""
+
     class util:
         @staticmethod
-        def asNode(node_data):
+        def asNode(node_data: Any) -> Union[Dict[str, Any], Any]:
             """Mock asNode function."""
             if hasattr(node_data, 'get'):
                 return node_data
             return {'title': str(node_data), 'id': node_data}
-    
+
     @staticmethod
-    def pageRank():
+    def pageRank() -> 'MockGDS':
         return MockGDS()
-    
+
     @staticmethod
-    def shortestPath():
+    def shortestPath() -> 'MockGDS':
         return MockGDS()
-    
+
     @staticmethod
-    def louvain():
+    def louvain() -> 'MockGDS':
         return MockGDS()
-    
-    def stream(self, *args, **kwargs):
+
+    def stream(self, *args: Any, **kwargs: Any) -> List[Any]:
         """Mock stream method."""
         return []
 
-# Create gds attribute for backward compatibility
+# Initialize the global `gds` object.
+# This logic ensures `gds.util` is always a patentable attribute, which is 
+# critical for tests that monkeypatch `asNode`.
 if GDS_AVAILABLE:
     gds = GraphDataScience
-    # Some GDS client implementations expose `util` as a `@property` on the class,
-    # which makes `gds.util` a property object that cannot be monkeypatched in tests
-    # (monkeypatch.setattr(analysis.gds.util, "asNode", ...) fails).
-    # To make tests robust, ensure `gds.util` is a plain attribute object with an
-    # `asNode` method that can be replaced by tests. We keep a proxy that delegates
-    # to a simple mock implementation by default.
     try:
         util_attr = getattr(gds, "util", None)
-        # If util is a property/descriptor, replace it with a simple proxy class.
+        # If util is a property/descriptor (common in some client versions), 
+        # replace it with a proxy to allow test monkeypatching.
         if isinstance(util_attr, property):
             class _UtilProxy:
                 @staticmethod
-                def asNode(node_data):
+                def asNode(node_data: Any) -> Any:
                     return MockGDS.util.asNode(node_data)
             setattr(gds, "util", _UtilProxy)
         elif util_attr is None:
-            # If no util attribute exists, provide a default one.
             setattr(gds, "util", MockGDS.util)
     except Exception:
-        # If anything goes wrong, ensure a usable util is present for tests.
+        # Fallback to ensure usable util is present for tests
         setattr(gds, "util", MockGDS.util)
 else:
     gds = MockGDS()
 
-def calculate_pagerank(session, project_name="wikipedia"):
+
+# ==========================================
+# Analysis Functions
+# ==========================================
+
+def calculate_pagerank(session: Any, project_name: str = "wikipedia") -> List[Dict[str, Any]]:
     """
     Calculates PageRank for nodes in the graph.
+    Falls back to a Cypher implementation if GDS fails.
     """
     try:
         query = f"""
@@ -96,9 +102,10 @@ def calculate_pagerank(session, project_name="wikipedia"):
         """
         results = session.run(query)
         return [{"title": r["title"], "score": r["score"]} for r in results]
-    except Exception as e:
-        # Fallback to basic PageRank calculation
-        query = f"""
+
+    except Exception:
+        # Fallback to basic PageRank calculation using Cypher
+        query = """
         MATCH (n:Article)
         OPTIONAL MATCH (n)<-[:LINKS_TO]-(m:Article)
         WITH n, count(m) as inbound_links
@@ -108,9 +115,16 @@ def calculate_pagerank(session, project_name="wikipedia"):
         results = session.run(query)
         return [{"title": r["title"], "score": r["score"]} for r in results]
 
-def find_shortest_path(session, start_node_title, end_node_title, project_name="wikipedia"):
+
+def find_shortest_path(
+    session: Any, 
+    start_node_title: str, 
+    end_node_title: str, 
+    project_name: str = "wikipedia"
+) -> List[Dict[str, Any]]:
     """
     Finds the shortest path between two nodes using BFS.
+    Falls back to `apoc.path.findMany` if GDS fails.
     """
     try:
         query = f"""
@@ -127,8 +141,9 @@ def find_shortest_path(session, start_node_title, end_node_title, project_name="
         """
         results = session.run(query, start_node_title=start_node_title, end_node_title=end_node_title)
         return [{"path": r["path"], "length": r["length"]} for r in results]
-    except Exception as e:
-        # Fallback to basic shortest path using Cypher
+
+    except Exception:
+        # Fallback to basic shortest path using APOC/Cypher
         query = """
         MATCH (start:Article {title: $start_node_title}), (end:Article {title: $end_node_title})
         CALL apoc.path.findMany(start, end, 'LINKS_TO>', '', {maxLevel: 10, limit: 1})
@@ -139,12 +154,13 @@ def find_shortest_path(session, start_node_title, end_node_title, project_name="
             results = session.run(query, start_node_title=start_node_title, end_node_title=end_node_title)
             return [{"path": r["path"], "length": r["length"]} for r in results]
         except Exception:
-            # Final fallback: return empty result
             return []
 
-def detect_communities(session, project_name="wikipedia"):
+
+def detect_communities(session: Any, project_name: str = "wikipedia") -> Dict[int, List[str]]:
     """
     Detects communities using the Louvain algorithm.
+    Falls back to grouping by connectivity if GDS fails.
     """
     try:
         query = f"""
@@ -156,14 +172,16 @@ def detect_communities(session, project_name="wikipedia"):
         ORDER BY communityId, title
         """
         results = session.run(query)
-        communities = {}
+        
+        communities: Dict[int, List[str]] = {}
         for r in results:
             community_id = r["communityId"]
             if community_id not in communities:
                 communities[community_id] = []
             communities[community_id].append(r["title"])
         return communities
-    except Exception as e:
+
+    except Exception:
         # Fallback: group by simple connectivity
         query = """
         MATCH (n:Article)
@@ -173,6 +191,7 @@ def detect_communities(session, project_name="wikipedia"):
         ORDER BY communityId, title
         """
         results = session.run(query)
+        
         communities = {}
         for r in results:
             community_id = r["communityId"]
@@ -181,12 +200,15 @@ def detect_communities(session, project_name="wikipedia"):
             communities[community_id].append(r["title"])
         return communities
 
-def calculate_centrality(session, project_name="wikipedia", centrality_type="betweenness"):
+
+def calculate_centrality(
+    session: Any, 
+    project_name: str = "wikipedia", 
+    centrality_type: str = "betweenness"
+) -> List[Dict[str, Any]]:
     """
-    Calculates various centrality measures.
-    Validate the requested centrality_type up front so invalid callers get a
-    ValueError (matching test expectations). Only query execution errors will
-    trigger the fallback path.
+    Calculates various centrality measures (betweenness, closeness).
+    Raises ValueError for unsupported types.
     """
     if centrality_type not in ("betweenness", "closeness"):
         raise ValueError(f"Unsupported centrality type: {centrality_type}")
@@ -212,15 +234,16 @@ def calculate_centrality(session, project_name="wikipedia", centrality_type="bet
             """
 
         results = session.run(query)
-        # session.run may return a list-like or an iterable result object; ensure
-        # we handle both normal iterables and mocks gracefully.
+        
+        # session.run may return a list-like or an iterable result object; 
+        # ensure we handle both normal iterables and mocks gracefully.
         try:
             return [{"title": r["title"], "score": r["score"]} for r in results]
         except TypeError:
-            # If results is a Mock or otherwise non-iterable, return empty list
             return []
+
     except Exception:
-        # Fallback: basic degree centrality (safe, defensive path)
+        # Fallback: basic degree centrality
         query = """
         MATCH (n:Article)
         OPTIONAL MATCH (n)-[:LINKS_TO]-(connected)
@@ -234,34 +257,44 @@ def calculate_centrality(session, project_name="wikipedia", centrality_type="bet
         except TypeError:
             return []
 
-def export_results(data, format_type="json", filename="results"):
+
+def export_results(
+    data: List[Dict[str, Any]], 
+    format_type: str = "json", 
+    filename: str = "results"
+) -> None:
     """
     Exports analysis results to a specified format (JSON or CSV).
-    Ensures CSV files are created even when `data` is an empty list so tests
-    that expect a file to exist will pass.
+    Ensures empty CSV files are created if data is empty.
     """
     if format_type == "json":
         with open(f"{filename}.json", "w") as f:
             json.dump(data, f, indent=4)
+            
     elif format_type == "csv":
         csv_path = f"{filename}.csv"
         # Always create the CSV file. If data is empty, create an empty file.
         if not data:
             open(csv_path, "w", newline="").close()
             return
+            
         with open(csv_path, "w", newline="") as f:
             fieldnames = list(data[0].keys())
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(data)
+            
     else:
         raise ValueError(f"Unsupported export format: {format_type}")
 
-def measure_performance(func, *args, **kwargs):
+
+def measure_performance(func: Callable, *args: Any, **kwargs: Any) -> Tuple[Any, float]:
     """
     Measures the execution time of a given function.
+    Returns: (function_result, duration_in_seconds)
     """
     start_time = time.perf_counter()
     result = func(*args, **kwargs)
     end_time = time.perf_counter()
+    
     return result, (end_time - start_time)
