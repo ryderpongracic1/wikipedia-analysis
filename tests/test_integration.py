@@ -1,8 +1,10 @@
+import json
+import csv
 import pytest
 from neo4j import GraphDatabase
 import time
 from wikipedia_analysis.database import batch_import_nodes, batch_import_relationships
-from wikipedia_analysis.analysis import calculate_pagerank, find_shortest_path, detect_communities, export_results, measure_performance
+from wikipedia_analysis.analysis import calculate_pagerank, find_shortest_path, detect_communities, export_results
 from pathlib import Path
 import os
 
@@ -185,53 +187,6 @@ def test_data_export_functionality(populated_neo4j_db, tmp_path):
             assert csv_data[0]['title'] == pagerank_results[0]['title']
 
         session.run("CALL gds.graph.drop('export_graph')")
-
-@pytest.mark.integration
-def test_performance_benchmarking(populated_neo4j_db):
-    """
-    Measures the time taken for the end-to-end data import and analysis pipeline.
-    This is a basic benchmark and can be expanded.
-    """
-    driver = populated_neo4j_db
-    with driver.session() as session:
-        # Measure graph projection time
-        _, projection_time = measure_performance(
-            session.run,
-            """
-            CALL gds.graph.project(
-                'benchmark_graph',
-                ['Article', 'Category'],
-                {
-                    LINKS_TO: {orientation: 'UNDIRECTED'},
-                    BELONGS_TO: {orientation: 'UNDIRECTED'},
-                    REDIRECTS_TO: {orientation: 'UNDIRECTED'}
-                }
-            )
-            """
-        )
-        print(f"\nGraph Projection Time: {projection_time:.4f} seconds")
-
-        # Measure PageRank calculation time
-        _, pagerank_time = measure_performance(calculate_pagerank, session, project_name='benchmark_graph')
-        print(f"PageRank Calculation Time: {pagerank_time:.4f} seconds")
-
-        # Measure Shortest Path calculation time (example between two articles)
-        _, shortest_path_time = measure_performance(find_shortest_path, session, 'Article A', 'Article B', project_name='benchmark_graph')
-        print(f"Shortest Path Calculation Time: {shortest_path_time:.4f} seconds")
-
-        # Measure Community Detection time
-        _, community_detection_time = measure_performance(detect_communities, session, project_name='benchmark_graph')
-        print(f"Community Detection Time: {community_detection_time:.4f} seconds")
-
-        total_analysis_time = projection_time + pagerank_time + shortest_path_time + community_detection_time
-        print(f"Total Analysis Pipeline Time: {total_analysis_time:.4f} seconds")
-
-        assert projection_time > 0
-        assert pagerank_time > 0
-        assert shortest_path_time > 0
-        assert community_detection_time > 0
-
-        session.run("CALL gds.graph.drop('benchmark_graph')")
 
 # Error Handling Tests (Conceptual - direct container manipulation is complex)
 # For robust error handling tests, one would typically mock the driver/session

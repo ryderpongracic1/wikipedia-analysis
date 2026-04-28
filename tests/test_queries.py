@@ -1,92 +1,100 @@
 import pytest
 from wikipedia_analysis import queries
 
+
+# ---------------------------------------------------------------------------
+# build_article_query — returns (query, params)
+# ---------------------------------------------------------------------------
+
 def test_build_article_query_no_filters():
-    """
-    Test building an Article query without any filters.
-    """
-    expected_query = "MATCH (a:Article) RETURN a"
-    assert queries.build_article_query() == expected_query
+    assert queries.build_article_query() == ("MATCH (a:Article) RETURN a", {})
+
 
 def test_build_article_query_with_title():
-    """
-    Test building an Article query with a title filter.
-    """
-    expected_query = "MATCH (a:Article {title: 'Test Article'}) RETURN a"
-    assert queries.build_article_query(title='Test Article') == expected_query
+    q, p = queries.build_article_query(title='Test Article')
+    assert q == "MATCH (a:Article {title: $title}) RETURN a"
+    assert p == {"title": "Test Article"}
+
 
 def test_build_article_query_with_namespace():
-    """
-    Test building an Article query with a namespace filter.
-    """
-    expected_query = "MATCH (a:Article {namespace: 0}) RETURN a"
-    assert queries.build_article_query(namespace=0) == expected_query
+    q, p = queries.build_article_query(namespace=0)
+    assert q == "MATCH (a:Article {namespace: $namespace}) RETURN a"
+    assert p == {"namespace": 0}
+
 
 def test_build_article_query_with_length():
-    """
-    Test building an Article query with a length filter.
-    """
-    expected_query = "MATCH (a:Article {length: 1000}) RETURN a"
-    assert queries.build_article_query(length=1000) == expected_query
+    q, p = queries.build_article_query(length=1000)
+    assert q == "MATCH (a:Article {length: $length}) RETURN a"
+    assert p == {"length": 1000}
+
 
 def test_build_article_query_with_multiple_filters():
-    """
-    Test building an Article query with multiple filters.
-    """
-    expected_query = "MATCH (a:Article {title: 'Another Article', namespace: 1, length: 500}) RETURN a"
-    assert queries.build_article_query(title='Another Article', namespace=1, length=500) == expected_query
+    q, p = queries.build_article_query(title='Another Article', namespace=1, length=500)
+    assert q == "MATCH (a:Article {title: $title, namespace: $namespace, length: $length}) RETURN a"
+    assert p == {"title": "Another Article", "namespace": 1, "length": 500}
+
+
+# ---------------------------------------------------------------------------
+# build_category_query — returns (query, params)
+# ---------------------------------------------------------------------------
 
 def test_build_category_query_no_filters():
-    """
-    Test building a Category query without any filters.
-    """
-    expected_query = "MATCH (c:Category) RETURN c"
-    assert queries.build_category_query() == expected_query
+    assert queries.build_category_query() == ("MATCH (c:Category) RETURN c", {})
+
 
 def test_build_category_query_with_name():
-    """
-    Test building a Category query with a name filter.
-    """
-    expected_query = "MATCH (c:Category {name: 'Test Category'}) RETURN c"
-    assert queries.build_category_query(name='Test Category') == expected_query
+    q, p = queries.build_category_query(name='Test Category')
+    assert q == "MATCH (c:Category {name: $name}) RETURN c"
+    assert p == {"name": "Test Category"}
+
+
+# ---------------------------------------------------------------------------
+# build_links_to_query — returns (query, params)
+# ---------------------------------------------------------------------------
 
 def test_build_links_to_query():
-    """
-    Test building a LINKS_TO relationship query.
-    """
-    expected_query = (
-        "MATCH (from:Article {title: 'Article A'}), "
-        "(to:Article {title: 'Article B'}) "
+    q, p = queries.build_links_to_query('Article A', 'Article B')
+    assert q == (
+        "MATCH (from:Article {title: $from_title}), "
+        "(to:Article {title: $to_title}) "
         "MERGE (from)-[:LINKS_TO]->(to)"
     )
-    assert queries.build_links_to_query('Article A', 'Article B') == expected_query
+    assert p == {"from_title": "Article A", "to_title": "Article B"}
+
+
+# ---------------------------------------------------------------------------
+# build_belongs_to_query — returns (query, params)
+# ---------------------------------------------------------------------------
 
 def test_build_belongs_to_query():
-    """
-    Test building a BELONGS_TO relationship query.
-    """
-    expected_query = (
-        "MATCH (a:Article {title: 'Article X'}), "
-        "(c:Category {name: 'Category Y'}) "
+    q, p = queries.build_belongs_to_query('Article X', 'Category Y')
+    assert q == (
+        "MATCH (a:Article {title: $article_title}), "
+        "(c:Category {name: $category_name}) "
         "MERGE (a)-[:BELONGS_TO]->(c)"
     )
-    assert queries.build_belongs_to_query('Article X', 'Category Y') == expected_query
+    assert p == {"article_title": "Article X", "category_name": "Category Y"}
+
+
+# ---------------------------------------------------------------------------
+# build_redirects_to_query — returns (query, params)
+# ---------------------------------------------------------------------------
 
 def test_build_redirects_to_query():
-    """
-    Test building a REDIRECTS_TO relationship query.
-    """
-    expected_query = (
-        "MATCH (from:Article {title: 'Old Article'}), "
-        "(to:Article {title: 'New Article'}) "
+    q, p = queries.build_redirects_to_query('Old Article', 'New Article')
+    assert q == (
+        "MATCH (from:Article {title: $from_title}), "
+        "(to:Article {title: $to_title}) "
         "MERGE (from)-[:REDIRECTS_TO]->(to)"
     )
-    assert queries.build_redirects_to_query('Old Article', 'New Article') == expected_query
+    assert p == {"from_title": "Old Article", "to_title": "New Article"}
+
+
+# ---------------------------------------------------------------------------
+# build_pagerank_query — returns plain string (no user input)
+# ---------------------------------------------------------------------------
 
 def test_build_pagerank_query_default_params():
-    """
-    Test building a PageRank query with default parameters.
-    """
     expected_query = (
         "CALL gds.pageRank.stream('wikiGraph', { "
         "maxIterations: 20, dampingFactor: 0.85 "
@@ -96,10 +104,8 @@ def test_build_pagerank_query_default_params():
     )
     assert queries.build_pagerank_query() == expected_query
 
+
 def test_build_pagerank_query_custom_params():
-    """
-    Test building a PageRank query with custom parameters.
-    """
     expected_query = (
         "CALL gds.pageRank.stream('wikiGraph', { "
         "maxIterations: 10, dampingFactor: 0.7 "
@@ -109,56 +115,30 @@ def test_build_pagerank_query_custom_params():
     )
     assert queries.build_pagerank_query(max_iterations=10, damping_factor=0.7) == expected_query
 
+
+# ---------------------------------------------------------------------------
+# build_shortest_path_query — returns (query, params)
+# ---------------------------------------------------------------------------
+
 def test_build_shortest_path_query_default_relationship():
-    """
-    Test building a shortest path query with default relationship type.
-    """
-    expected_query = (
-        "MATCH (start:Article {title: 'Start Article'}), "
-        "(end:Article {title: 'End Article'}) "
-        "CALL gds.shortestPath.dijkstra.stream('wikiGraph', { "
-        "sourceNode: gds.util.asNode(start).id, "
-        "targetNode: gds.util.asNode(end).id, "
-        "relationshipWeightProperty: 'weight', "
-        "relationshipType: 'LINKS_TO' "
-        "}) YIELD index, sourceNode, targetNode, totalCost, nodeIds, costs, path "
-        "RETURN "
-        "gds.util.asNode(sourceNode).title AS source, "
-        "gds.util.asNode(targetNode).title AS target, "
-        "totalCost, "
-        "[nodeId IN nodeIds | gds.util.asNode(nodeId).title] AS nodesInPath, "
-        "costs "
-        "ORDER BY index"
-    )
-    assert queries.build_shortest_path_query('Start Article', 'End Article') == expected_query
+    q, p = queries.build_shortest_path_query('Start Article', 'End Article')
+    assert "title: $start_title" in q
+    assert "title: $end_title" in q
+    assert "relationshipType: 'LINKS_TO'" in q
+    assert p == {"start_title": "Start Article", "end_title": "End Article"}
+
 
 def test_build_shortest_path_query_custom_relationship():
-    """
-    Test building a shortest path query with a custom relationship type.
-    """
-    expected_query = (
-        "MATCH (start:Article {title: 'Start Article'}), "
-        "(end:Article {title: 'End Article'}) "
-        "CALL gds.shortestPath.dijkstra.stream('wikiGraph', { "
-        "sourceNode: gds.util.asNode(start).id, "
-        "targetNode: gds.util.asNode(end).id, "
-        "relationshipWeightProperty: 'weight', "
-        "relationshipType: 'CUSTOM_REL' "
-        "}) YIELD index, sourceNode, targetNode, totalCost, nodeIds, costs, path "
-        "RETURN "
-        "gds.util.asNode(sourceNode).title AS source, "
-        "gds.util.asNode(targetNode).title AS target, "
-        "totalCost, "
-        "[nodeId IN nodeIds | gds.util.asNode(nodeId).title] AS nodesInPath, "
-        "costs "
-        "ORDER BY index"
-    )
-    assert queries.build_shortest_path_query('Start Article', 'End Article', relationship_type='CUSTOM_REL') == expected_query
+    q, p = queries.build_shortest_path_query('Start Article', 'End Article', relationship_type='CUSTOM_REL')
+    assert "relationshipType: 'CUSTOM_REL'" in q
+    assert p == {"start_title": "Start Article", "end_title": "End Article"}
+
+
+# ---------------------------------------------------------------------------
+# build_community_detection_query — returns plain string
+# ---------------------------------------------------------------------------
 
 def test_build_community_detection_query_louvain():
-    """
-    Test building a Louvain community detection query.
-    """
     expected_query = (
         "CALL gds.louvain.stream('wikiGraph') "
         "YIELD nodeId, communityId "
@@ -167,10 +147,8 @@ def test_build_community_detection_query_louvain():
     )
     assert queries.build_community_detection_query(algorithm='louvain') == expected_query
 
+
 def test_build_community_detection_query_label_propagation():
-    """
-    Test building a Label Propagation community detection query.
-    """
     expected_query = (
         "CALL gds.labelPropagation.stream('wikiGraph') "
         "YIELD nodeId, communityId "
@@ -179,23 +157,21 @@ def test_build_community_detection_query_label_propagation():
     )
     assert queries.build_community_detection_query(algorithm='label_propagation') == expected_query
 
+
 def test_build_community_detection_query_unsupported_algorithm():
-    """
-    Test building a community detection query with an unsupported algorithm.
-    """
     with pytest.raises(ValueError, match="Unsupported community detection algorithm: unknown"):
         queries.build_community_detection_query(algorithm='unknown')
 
+
+# ---------------------------------------------------------------------------
+# build_batch_create_articles_query — returns plain string
+# ---------------------------------------------------------------------------
+
 def test_build_batch_create_articles_query_empty_list():
-    """
-    Test building a batch create articles query with an empty list.
-    """
     assert queries.build_batch_create_articles_query([]) == ""
 
+
 def test_build_batch_create_articles_query_single_article():
-    """
-    Test building a batch create articles query with a single article.
-    """
     article_data = [{'title': 'Article 1', 'namespace': 0, 'length': 100}]
     expected_query = (
         "UNWIND $props AS article_props\n"
@@ -205,10 +181,8 @@ def test_build_batch_create_articles_query_single_article():
     )
     assert queries.build_batch_create_articles_query(article_data) == expected_query
 
+
 def test_build_batch_create_articles_query_multiple_articles():
-    """
-    Test building a batch create articles query with multiple articles.
-    """
     article_data = [
         {'title': 'Article 1', 'namespace': 0, 'length': 100},
         {'title': 'Article 2', 'namespace': 1, 'length': 200}
@@ -221,16 +195,16 @@ def test_build_batch_create_articles_query_multiple_articles():
     )
     assert queries.build_batch_create_articles_query(article_data) == expected_query
 
+
+# ---------------------------------------------------------------------------
+# build_batch_create_links_query — returns plain string
+# ---------------------------------------------------------------------------
+
 def test_build_batch_create_links_query_empty_list():
-    """
-    Test building a batch create links query with an empty list.
-    """
     assert queries.build_batch_create_links_query([]) == ""
 
+
 def test_build_batch_create_links_query_single_link():
-    """
-    Test building a batch create links query with a single link.
-    """
     link_data = [{'from_title': 'Article A', 'to_title': 'Article B'}]
     expected_query = (
         "UNWIND $props AS link_props\n"
@@ -240,10 +214,8 @@ def test_build_batch_create_links_query_single_link():
     )
     assert queries.build_batch_create_links_query(link_data) == expected_query
 
+
 def test_build_batch_create_links_query_multiple_links():
-    """
-    Test building a batch create links query with multiple links.
-    """
     link_data = [
         {'from_title': 'Article A', 'to_title': 'Article B'},
         {'from_title': 'Article C', 'to_title': 'Article D'}

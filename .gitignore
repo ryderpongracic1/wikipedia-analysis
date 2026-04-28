@@ -1,3 +1,4 @@
 *.xml
 *.bz2
 !wikipedia_analysis/sample-articles.xml
+benchmarks/results/*.json

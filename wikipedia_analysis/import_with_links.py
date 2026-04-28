@@ -47,7 +47,7 @@ def create_article_and_links(tx, article_id, title, links, categories):
         MATCH (source:Article {id: $article_id})
         UNWIND $categories as category_name
         MERGE (category:Category {name: category_name})
-        MERGE (source)-[:IN_CATEGORY]->(category)
+        MERGE (source)-[:BELONGS_TO]->(category)
         """
         tx.run(query_categories, article_id=article_id, categories=categories)
 

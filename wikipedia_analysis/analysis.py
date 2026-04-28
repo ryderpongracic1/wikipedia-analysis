@@ -3,21 +3,7 @@
 import json
 import csv
 import time
-import builtins
 from typing import Dict, List, Any, Optional, Callable, Tuple, Union
-
-# ==========================================
-# Compatibility Shim for Test Suite
-# ==========================================
-# Ensure certain common modules are available to test modules that reference 
-# them at module scope without importing. This is a pragmatic compatibility 
-# shim for the specific requirements of the repository's test suite.
-if not hasattr(builtins, "json"):
-    builtins.json = json
-if not hasattr(builtins, "csv"):
-    builtins.csv = csv
-if not hasattr(builtins, "time"):
-    builtins.time = time
 
 
 # ==========================================
