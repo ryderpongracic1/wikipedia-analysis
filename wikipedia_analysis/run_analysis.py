@@ -1,11 +1,5 @@
 from neo4j import GraphDatabase
-
-# --- Configuration ---
-# Neo4j connection details
-uri = "bolt://localhost:7687"
-username = "neo4j"
-# IMPORTANT: Replace "your_password" with your actual Neo4j password
-password = "my_password"
+from wikipedia_analysis.config import load_neo4j_config
 
 # --- Analysis Functions ---
 
@@ -107,7 +101,8 @@ def find_knowledge_path(session, start_article, end_article):
 
 # --- Main Execution ---
 if __name__ == "__main__":
-    with GraphDatabase.driver(uri, auth=(username, password)) as driver:
+    cfg = load_neo4j_config()
+    with GraphDatabase.driver(cfg.uri, auth=(cfg.user, cfg.password)) as driver:
         driver.verify_connectivity()
         with driver.session() as session:
             # Run the analyses

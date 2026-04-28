@@ -18,10 +18,10 @@ def check_memory_pressure():
 
 def streaming_import(xml_file, batch_size=100):
     """Memory-efficient streaming import using data_processing module."""
-    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    username = os.getenv("NEO4J_USERNAME", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "my_password")
-    
+    from wikipedia_analysis.config import load_neo4j_config
+    cfg = load_neo4j_config()
+    uri, username, password = cfg.uri, cfg.user, cfg.password
+
     print(f"Connecting to Neo4j with uri: {uri}, username: {username}")
     
     processed_articles = 0
