@@ -90,13 +90,6 @@ def dummy_xml_file(tmp_path):
     dummy_file = tmp_path / "dummy.xml"
     dummy_file.write_text(xml_content, encoding='utf-8')
     
-    # Also create it in current directory for tests that expect it there
-    try:
-        with open("dummy.xml", "w", encoding='utf-8') as f:
-            f.write(xml_content)
-    except PermissionError:
-        pass  # Skip if we can't write to current directory
-    
     return str(dummy_file)
 
 @pytest.fixture(scope="session")
@@ -173,33 +166,32 @@ def populated_neo4j_db(neo4j_driver):
             create_constraints_and_indexes(session)
 
             # 2. Create sample data directly (not from XML parsing)
-            # Create sample articles
             articles_to_import = [
-                {'id': '1', 'title': 'Test Article 1'},
-                {'id': '2', 'title': 'Test Article 2'},
-                {'id': '3', 'title': 'Test Article 3'}
+                {'id': '1', 'title': 'Article A'},
+                {'id': '2', 'title': 'Article B'},
+                {'id': '3', 'title': 'Article C'},
+                {'id': '4', 'title': 'Redirect Article'},
             ]
-            
-            # Create sample categories
+
             categories_to_import = [
-                {'id': '101', 'name': 'Test Category'}
+                {'id': '101', 'name': 'Test Category'},
+                {'id': '102', 'name': 'Empty Category'},
             ]
-            
-            # Batch import nodes
+
             batch_import_nodes(session, "Article", articles_to_import)
             batch_import_nodes(session, "Category", categories_to_import)
 
-            # Create sample relationships
             links_relationships = [
                 {'source_article_id': '1', 'target_article_id': '2'},
-                {'source_article_id': '2', 'target_article_id': '3'}
+                {'source_article_id': '2', 'target_article_id': '1'},
             ]
-            
             belongs_to_relationships = [
-                {'article_id': '1', 'category_id': '101'}
+                {'article_id': '1', 'category_id': '101'},
             ]
-            
-            # Batch import relationships
+            redirects_to_relationships = [
+                {'redirect_id': '4', 'article_id': '1'},
+            ]
+
             batch_import_relationships(
                 session,
                 "LINKS_TO", "Article", "Article",
@@ -211,6 +203,12 @@ def populated_neo4j_db(neo4j_driver):
                 "BELONGS_TO", "Article", "Category",
                 "article_id", "category_id",
                 belongs_to_relationships
+            )
+            batch_import_relationships(
+                session,
+                "REDIRECTS_TO", "Article", "Article",
+                "redirect_id", "article_id",
+                redirects_to_relationships
             )
 
         yield neo4j_driver
