@@ -151,7 +151,8 @@ def test_batch_import_nodes(mock_neo4j_session):
     mock_neo4j_session.run.assert_called_once()
     args, kwargs = mock_neo4j_session.run.call_args
     assert "UNWIND $nodes AS node" in args[0]
-    assert "CREATE (n:Article {id: node.id, title: node.title, namespace: node.namespace, redirect_title: node.redirect_title, is_redirect: node.is_redirect})" in args[0]
+    assert "MERGE (n:Article {id: node.id})" in args[0]
+    assert "SET n += node" in args[0]
     assert kwargs['nodes'] == nodes_data
 
 def test_batch_import_nodes_empty_list(mock_neo4j_session):
