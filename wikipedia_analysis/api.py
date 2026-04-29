@@ -1,8 +1,8 @@
-import os
 import logging
-from typing import List, Any
+from typing import List
 from flask import Flask, jsonify, Response
 from neo4j import GraphDatabase, Driver, Session
+from wikipedia_analysis.config import load_neo4j_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -10,14 +10,9 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# Neo4j connection details
-NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
-
-# Initialize driver
 try:
-    driver: Driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
+    _cfg = load_neo4j_config()
+    driver: Driver = GraphDatabase.driver(_cfg.uri, auth=(_cfg.user, _cfg.password))
 except Exception as e:
     logger.error(f"Failed to create Neo4j driver: {e}")
     driver = None
@@ -49,10 +44,12 @@ def get_categories() -> Response:
 @app.route("/category/<category_name>", methods=["GET"])
 def get_articles_in_category(category_name: str) -> Response:
     """Fetches titles of articles belonging to a specific category."""
+    if not category_name or not category_name.strip():
+        return jsonify({"error": "category_name is required"}), 400
     try:
         with get_db_session() as session:
             query = """
-            MATCH (a:Article)-[:IN_CATEGORY]->(c:Category)
+            MATCH (a:Article)-[:BELONGS_TO]->(c:Category)
             WHERE c.name = $category_name
             RETURN a.title AS articleTitle
             """

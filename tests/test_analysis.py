@@ -1,3 +1,6 @@
+import json
+import csv
+import time
 import pytest
 from unittest.mock import Mock, patch
 from wikipedia_analysis import analysis

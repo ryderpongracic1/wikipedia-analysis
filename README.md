@@ -110,3 +110,27 @@ Available Endpoints:
     Example `curl` command:
     ```bash
     curl http://127.0.0.1:5000/category/Graph%20theory
+
+## Database Migration Note
+
+The canonical article→category relationship type is `BELONGS_TO`. If you have an existing database imported with an older version of this project that used `IN_CATEGORY`, run the following Cypher to migrate:
+
+```cypher
+MATCH (a)-[r:IN_CATEGORY]->(c)
+MERGE (a)-[:BELONGS_TO]->(c)
+DELETE r
+```
+
+## Benchmarking
+
+Benchmark tests live in `tests/test_benchmarks.py` and use the `benchmark` pytest marker.
+
+```bash
+# Run all benchmarks (requires Neo4j)
+pytest tests/test_benchmarks.py -m benchmark
+
+# Pure-Python benchmarks only (no Neo4j needed)
+pytest tests/test_benchmarks.py -m "benchmark and not integration"
+```
+
+Results are written to `benchmarks/results/<timestamp>.json` after each run. The nightly CI benchmark workflow (`.github/workflows/benchmarks.yml`) uploads results as GitHub Actions artifacts with 90-day retention.

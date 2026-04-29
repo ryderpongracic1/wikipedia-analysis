@@ -10,48 +10,8 @@ from neo4j import GraphDatabase
 # In a real scenario, you would import the actual config module.
 
 from wikipedia_analysis import config as project_config
+from wikipedia_analysis.config import Neo4jConfig
 ConfigError = project_config.ConfigError
-
-class Neo4jConfig:
-    def __init__(self, uri, user, password):
-        self.uri = uri
-        self.user = user
-        self.password = password
-
-def load_neo4j_config_from_file(config_path="config.json"):
-    try:
-        with open(config_path, 'r') as f:
-            config_data = json.load(f)
-        neo4j_config = config_data.get('neo4j', {})
-        uri = neo4j_config.get('uri')
-        user = neo4j_config.get('user')
-        password = neo4j_config.get('password')
-
-        if not all([uri, user, password]):
-            raise ConfigError("Missing Neo4j configuration fields in file.")
-        return Neo4jConfig(uri, user, password)
-    except FileNotFoundError:
-        raise ConfigError(f"Configuration file not found at {config_path}")
-    except json.JSONDecodeError:
-        raise ConfigError(f"Error decoding JSON from {config_path}")
-
-def load_neo4j_config():
-    # This function will be mocked in tests, but here's a placeholder
-    # for how it might combine file and environment variables.
-    file_config = None
-    try:
-        file_config = load_neo4j_config_from_file()
-    except ConfigError:
-        pass # Ignore if file not found or invalid, env vars might still provide config
-
-    uri = os.getenv('NEO4J_URI', file_config.uri if file_config else None)
-    user = os.getenv('NEO4J_USER', file_config.user if file_config else None)
-    password = os.getenv('NEO4J_PASSWORD', file_config.password if file_config else None)
-
-    if not all([uri, user, password]):
-        raise ConfigError("Missing Neo4j configuration. Check config file or environment variables.")
-    
-    return Neo4jConfig(uri, user, password)
 
 
 # --- Tests start here ---
@@ -169,30 +129,9 @@ def test_load_neo4j_config_missing_env_vars_and_file(mock_load_from_file, mock_g
 # For data types, we assume the underlying json.load handles basic type parsing,
 # and our Neo4jConfig constructor expects strings.
 
-# Test connection string formatting
-# Assuming the Neo4jConfig object directly holds uri, user, password,
-# and a separate function/method would format a connection string if needed.
-# Let's add a method to Neo4jConfig for this.
-
-class Neo4jConfig:
-    def __init__(self, uri, user, password):
-        if not isinstance(uri, str) or not uri:
-            raise ValueError("URI must be a non-empty string.")
-        if not isinstance(user, str) or not user:
-            raise ValueError("User must be a non-empty string.")
-        if not isinstance(password, str) or not password:
-            raise ValueError("Password must be a non-empty string.")
-        
-        self.uri = uri
-        self.user = user
-        self.password = password
-
-    def get_connection_string(self):
-        # This is a simplified example; real connection strings might be more complex
-        return f"uri={self.uri}, user={self.user}, password=********" # Mask password for display
-
 def test_neo4j_config_validation_success():
     config = Neo4jConfig("bolt://localhost:7687", "neo4j", "password")
+    config.validate()  # Should not raise
     assert config.uri == "bolt://localhost:7687"
     assert config.user == "neo4j"
     assert config.password == "password"
@@ -207,13 +146,9 @@ def test_neo4j_config_validation_success():
     (123, "user", "pass", "URI must be a non-empty string."),
 ])
 def test_neo4j_config_validation_failure(uri, user, password, expected_error_match):
-    with pytest.raises(ValueError, match=expected_error_match):
-        Neo4jConfig(uri, user, password)
-
-def test_neo4j_config_connection_string_formatting():
-    config = Neo4jConfig("bolt://localhost:7687", "neo4j", "password")
-    expected_string = "uri=bolt://localhost:7687, user=neo4j, password=********"
-    assert config.get_connection_string() == expected_string
+    config = Neo4jConfig(uri=uri, user=user, password=password)
+    with pytest.raises(ConfigError, match=expected_error_match):
+        config.validate()
 
 # Test mocking database connection attempts
 @patch('neo4j.GraphDatabase.driver')
