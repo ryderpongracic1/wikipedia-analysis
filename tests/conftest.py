@@ -228,6 +228,16 @@ def populated_neo4j_db(neo4j_driver):
         with neo4j_driver.session() as cleanup_session:
             cleanup_session.run("MATCH (n) DETACH DELETE n")
 
+@pytest.fixture(scope="session")
+def gds_available(neo4j_driver):
+    """Returns True if the GDS library is installed in the connected Neo4j instance."""
+    try:
+        with neo4j_driver.session() as session:
+            session.run("CALL gds.version() YIELD version RETURN version").single()
+        return True
+    except Exception:
+        return False
+
 @pytest.fixture
 def sample_xml_content():
     """Sample XML content for testing data processing."""

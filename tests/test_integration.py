@@ -88,10 +88,12 @@ def test_end_to_end_data_import_workflow(populated_neo4j_db):
         assert new_links_to_count == links_to_count
 
 @pytest.mark.integration
-def test_complete_analysis_pipeline(populated_neo4j_db):
+def test_complete_analysis_pipeline(populated_neo4j_db, gds_available):
     """
     Tests the complete analysis pipeline including PageRank, Shortest Path, and Community Detection.
     """
+    if not gds_available:
+        pytest.skip("GDS library not available in this Neo4j instance")
     driver = populated_neo4j_db
     with driver.session() as session:
         # Ensure the graph is projected for GDS algorithms
@@ -145,10 +147,12 @@ def test_complete_analysis_pipeline(populated_neo4j_db):
         session.run("CALL gds.graph.drop('test_graph')")
 
 @pytest.mark.integration
-def test_data_export_functionality(populated_neo4j_db, tmp_path):
+def test_data_export_functionality(populated_neo4j_db, tmp_path, gds_available):
     """
     Tests the data export functionality by exporting PageRank results to a temporary file.
     """
+    if not gds_available:
+        pytest.skip("GDS library not available in this Neo4j instance")
     driver = populated_neo4j_db
     with driver.session() as session:
         session.run("""
@@ -202,12 +206,18 @@ def test_error_handling_database_connection_failure_mocked(populated_neo4j_db, m
     
     # Mock the session.run method to raise an exception
     class MockSession:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
         def run(self, *args, **kwargs):
             if "CREATE CONSTRAINT" in args[0] or "MATCH (n) DETACH DELETE n" in args[0]:
                 # Allow setup/teardown queries to pass
                 return
             raise Exception("Simulated database connection error")
-        
+
         def close(self):
             pass
 
