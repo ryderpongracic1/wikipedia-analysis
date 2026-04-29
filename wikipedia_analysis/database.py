@@ -201,16 +201,12 @@ def batch_import_nodes(session, node_label: str, nodes_data: List[Dict[str, Any]
     if not nodes_data:
         return
 
-    # Determine properties from the first node, assuming all nodes have the same structure
-    # This is a simplification; a more robust solution might handle varying properties
-    properties = list(nodes_data[0].keys())
-    
-    # Construct the Cypher query dynamically
-    # Example: UNWIND $nodes AS node CREATE (n:Article {id: node.id, title: node.title})
-    set_clauses = ", ".join([f"{prop}: node.{prop}" for prop in properties])
+    # Use MERGE on the unique 'id' property so re-imports are idempotent and
+    # honour the unique constraint without throwing ConstraintErrors.
     query = f"""
     UNWIND $nodes AS node
-    CREATE (n:{node_label} {{{set_clauses}}})
+    MERGE (n:{node_label} {{id: node.id}})
+    SET n += node
     """
     session.run(query, nodes=nodes_data)
 

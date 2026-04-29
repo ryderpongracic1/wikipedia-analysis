@@ -93,66 +93,77 @@ def dummy_xml_file(tmp_path):
     return str(dummy_file)
 
 @pytest.fixture(scope="session")
-def neo4j_container():
-    """Starts a Neo4j container for integration tests with proper authentication."""
-    # Skip integration container startup if Docker is not available on the host.
-    docker_socket = "/var/run/docker.sock"
-    if not (os.environ.get("DOCKER_HOST") or os.path.exists(docker_socket)):
-        pytest.skip("Docker not available; skipping Neo4j integration tests.")
+def neo4j_driver():
+    """Creates a Neo4j driver for integration tests.
 
-    container = Neo4jContainer("neo4j:4.4") \
-        .with_env("NEO4J_AUTH", "neo4j/testpassword") \
-        .with_env("NEO4J_ACCEPT_LICENSE_AGREEMENT", "yes") \
-        .with_env("NEO4J_dbms_security_procedures_unrestricted", "gds.*,apoc.*") \
-        .with_env("NEO4J_dbms_security_procedures_allowlist", "gds.*,apoc.*") \
-        .with_exposed_ports(7687, 7474)
-    
-    container.start()
-    
-    # Wait for Neo4j to be fully ready with retry logic
-    max_wait_time = 60  # seconds
-    wait_interval = 2   # seconds
-    waited = 0
-    
-    while waited < max_wait_time:
-        try:
-            # Test connection
-            uri = f"bolt://localhost:{container.get_exposed_port(7687)}"
-            test_driver = GraphDatabase.driver(uri, auth=("neo4j", "testpassword"))
-            test_driver.verify_connectivity()
-            test_driver.close()
-            break
-        except Exception:
-            time.sleep(wait_interval)
-            waited += wait_interval
-    
-    if waited >= max_wait_time:
-        container.stop()
-        raise RuntimeError("Neo4j container failed to start within timeout")
-    
-    yield container
-    container.stop()
+    Two paths:
+    - CI / pre-provisioned: NEO4J_URI env var is set → use the service container
+      directly (no Docker spawn needed).
+    - Local dev: NEO4J_URI not set → start a testcontainers Neo4j instance.
+    """
+    env_uri = os.environ.get("NEO4J_URI")
+    env_user = os.environ.get("NEO4J_USER", "neo4j")
+    env_password = os.environ.get("NEO4J_PASSWORD", "testpassword")
 
-@pytest.fixture(scope="session")
-def neo4j_driver(neo4j_container):
-    """Creates a Neo4j driver instance connected to the test container."""
-    uri = f"bolt://localhost:{neo4j_container.get_exposed_port(7687)}"
-    driver = GraphDatabase.driver(uri, auth=("neo4j", "testpassword"))
-    
-    # Retry connection with exponential backoff
-    max_retries = 5
-    for attempt in range(max_retries):
+    container = None
+
+    if env_uri:
+        # Already have a running Neo4j (GitHub Actions service container, etc.)
+        uri, user, password = env_uri, env_user, env_password
+    else:
+        # Spin up our own container for local development
+        docker_socket = "/var/run/docker.sock"
+        if not (os.environ.get("DOCKER_HOST") or os.path.exists(docker_socket)):
+            pytest.skip("Docker not available; skipping Neo4j integration tests.")
+
+        container = (
+            Neo4jContainer("neo4j:4.4")
+            .with_env("NEO4J_AUTH", "neo4j/testpassword")
+            .with_env("NEO4J_ACCEPT_LICENSE_AGREEMENT", "yes")
+            .with_env("NEO4J_dbms_security_procedures_unrestricted", "gds.*,apoc.*")
+            .with_env("NEO4J_dbms_security_procedures_allowlist", "gds.*,apoc.*")
+        )
+        container.start()
+
+        port = container.get_exposed_port(7687)
+        uri = f"bolt://localhost:{port}"
+        user, password = "neo4j", "testpassword"
+
+        # Wait up to 120 s for the container to accept connections
+        waited, max_wait, interval = 0, 120, 2
+        while waited < max_wait:
+            try:
+                probe = GraphDatabase.driver(uri, auth=(user, password))
+                probe.verify_connectivity()
+                probe.close()
+                break
+            except Exception:
+                time.sleep(interval)
+                waited += interval
+        else:
+            container.stop()
+            raise RuntimeError("Neo4j container failed to start within timeout")
+
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+
+    # Verify connectivity with exponential-backoff retries
+    for attempt in range(5):
         try:
             driver.verify_connectivity()
             break
-        except Exception as e:
-            if attempt == max_retries - 1:
+        except Exception as exc:
+            if attempt == 4:
                 driver.close()
-                raise RuntimeError(f"Failed to connect to Neo4j after {max_retries} attempts: {e}")
+                if container:
+                    container.stop()
+                raise RuntimeError(f"Failed to connect to Neo4j after 5 attempts: {exc}")
             time.sleep(2 ** attempt)
-    
+
     yield driver
+
     driver.close()
+    if container:
+        container.stop()
 
 @pytest.fixture(scope="session")
 def populated_neo4j_db(neo4j_driver):
@@ -216,6 +227,16 @@ def populated_neo4j_db(neo4j_driver):
         # Cleanup: Clear the database using a context-managed session
         with neo4j_driver.session() as cleanup_session:
             cleanup_session.run("MATCH (n) DETACH DELETE n")
+
+@pytest.fixture(scope="session")
+def gds_available(neo4j_driver):
+    """Returns True if the GDS library is installed in the connected Neo4j instance."""
+    try:
+        with neo4j_driver.session() as session:
+            session.run("CALL gds.version() YIELD version RETURN version").single()
+        return True
+    except Exception:
+        return False
 
 @pytest.fixture
 def sample_xml_content():
