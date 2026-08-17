@@ -2,68 +2,44 @@
 
 import json
 import csv
+import logging
 import time
 from typing import Dict, List, Any, Optional, Callable, Tuple, Union
 
 
 # ==========================================
-# GDS Library & Mock Setup
+# GDS availability
 # ==========================================
+# All analysis queries are Cypher strings executed server-side; the Python
+# `graphdatascience` client is not required. GDS_AVAILABLE only reports
+# whether the optional client library is importable.
 try:
-    from graphdatascience import GraphDataScience
+    from graphdatascience import GraphDataScience  # noqa: F401
     GDS_AVAILABLE = True
 except ImportError:
     GDS_AVAILABLE = False
 
-class MockGDS:
-    """Mock GDS for testing when the library is unavailable."""
+logger = logging.getLogger(__name__)
+
+
+class _GdsShim:
+    """Placeholder retained for backward compatibility.
+
+    Historic versions exported a module-level ``gds`` object that some
+    callers and tests monkeypatch. Nothing in this module calls it: every
+    ``gds.*`` reference in the queries below is a server-side Cypher
+    function, not this Python object.
+    """
 
     class util:
         @staticmethod
         def asNode(node_data: Any) -> Union[Dict[str, Any], Any]:
-            """Mock asNode function."""
             if hasattr(node_data, 'get'):
                 return node_data
             return {'title': str(node_data), 'id': node_data}
 
-    @staticmethod
-    def pageRank() -> 'MockGDS':
-        return MockGDS()
 
-    @staticmethod
-    def shortestPath() -> 'MockGDS':
-        return MockGDS()
-
-    @staticmethod
-    def louvain() -> 'MockGDS':
-        return MockGDS()
-
-    def stream(self, *args: Any, **kwargs: Any) -> List[Any]:
-        """Mock stream method."""
-        return []
-
-# Initialize the global `gds` object.
-# This logic ensures `gds.util` is always a patentable attribute, which is 
-# critical for tests that monkeypatch `asNode`.
-if GDS_AVAILABLE:
-    gds = GraphDataScience
-    try:
-        util_attr = getattr(gds, "util", None)
-        # If util is a property/descriptor (common in some client versions), 
-        # replace it with a proxy to allow test monkeypatching.
-        if isinstance(util_attr, property):
-            class _UtilProxy:
-                @staticmethod
-                def asNode(node_data: Any) -> Any:
-                    return MockGDS.util.asNode(node_data)
-            setattr(gds, "util", _UtilProxy)
-        elif util_attr is None:
-            setattr(gds, "util", MockGDS.util)
-    except Exception:
-        # Fallback to ensure usable util is present for tests
-        setattr(gds, "util", MockGDS.util)
-else:
-    gds = MockGDS()
+gds = _GdsShim()
 
 
 # ==========================================
@@ -76,11 +52,13 @@ def calculate_pagerank(session: Any, project_name: str = "wikipedia") -> List[Di
     Falls back to a Cypher implementation if GDS fails.
     """
     try:
+        # NOTE: no relationshipWeightProperty — the importer creates an
+        # unweighted citation graph; asking GDS for a nonexistent 'weight'
+        # property made every call fail and silently fall back.
         query = f"""
         CALL gds.pageRank.stream('{project_name}', {{
             maxIterations: 20,
-            dampingFactor: 0.85,
-            relationshipWeightProperty: 'weight'
+            dampingFactor: 0.85
         }})
         YIELD nodeId, score
         RETURN gds.util.asNode(nodeId).title AS title, score
@@ -89,8 +67,11 @@ def calculate_pagerank(session: Any, project_name: str = "wikipedia") -> List[Di
         results = session.run(query)
         return [{"title": r["title"], "score": r["score"]} for r in results]
 
-    except Exception:
-        # Fallback to basic PageRank calculation using Cypher
+    except Exception as e:
+        logger.warning(
+            "GDS PageRank unavailable (%s); falling back to in-degree scoring. "
+            "Scores are NOT PageRank values.", e
+        )
         query = """
         MATCH (n:Article)
         OPTIONAL MATCH (n)<-[:LINKS_TO]-(m:Article)
@@ -109,18 +90,22 @@ def find_shortest_path(
     project_name: str = "wikipedia"
 ) -> List[Dict[str, Any]]:
     """
-    Finds the shortest path between two nodes using BFS.
-    Falls back to `apoc.path.findMany` if GDS fails.
+    Finds the shortest path between two nodes.
+
+    Uses GDS Dijkstra (unweighted graph, so this is equivalent to BFS) and
+    falls back to Cypher shortestPath() when GDS is not installed.
     """
     try:
+        # sourceNode/targetNode take node references directly (GDS 2.x);
+        # the previous version passed a property lookup via gds.util.asNode
+        # and called gds.shortestPath.bfs.stream, which does not exist.
         query = f"""
         MATCH (start:Article {{title: $start_node_title}}), (end:Article {{title: $end_node_title}})
-        CALL gds.shortestPath.bfs.stream('{project_name}', {{
-            sourceNode: gds.util.asNode(start).id,
-            targetNode: gds.util.asNode(end).id,
-            relationshipWeightProperty: 'weight'
+        CALL gds.shortestPath.dijkstra.stream('{project_name}', {{
+            sourceNode: start,
+            targetNode: end
         }})
-        YIELD index, sourceNode, targetNode, totalCost, nodeIds, relationshipIds
+        YIELD index, sourceNode, targetNode, totalCost, nodeIds, costs
         RETURN
             [nodeId IN nodeIds | gds.util.asNode(nodeId).title] AS path,
             totalCost AS length
@@ -128,18 +113,20 @@ def find_shortest_path(
         results = session.run(query, start_node_title=start_node_title, end_node_title=end_node_title)
         return [{"path": r["path"], "length": r["length"]} for r in results]
 
-    except Exception:
-        # Fallback to basic shortest path using APOC/Cypher
+    except Exception as e:
+        logger.warning(
+            "GDS shortest path unavailable (%s); falling back to Cypher shortestPath().", e
+        )
         query = """
         MATCH (start:Article {title: $start_node_title}), (end:Article {title: $end_node_title})
-        CALL apoc.path.findMany(start, end, 'LINKS_TO>', '', {maxLevel: 10, limit: 1})
-        YIELD path
-        RETURN [node IN nodes(path) | node.title] AS path, length(path) AS length
+        MATCH p = shortestPath((start)-[:LINKS_TO*..10]->(end))
+        RETURN [node IN nodes(p) | node.title] AS path, toFloat(length(p)) AS length
         """
         try:
             results = session.run(query, start_node_title=start_node_title, end_node_title=end_node_title)
             return [{"path": r["path"], "length": r["length"]} for r in results]
-        except Exception:
+        except Exception as e2:
+            logger.error("Cypher shortestPath fallback also failed: %s", e2)
             return []
 
 
@@ -150,15 +137,13 @@ def detect_communities(session: Any, project_name: str = "wikipedia") -> Dict[in
     """
     try:
         query = f"""
-        CALL gds.louvain.stream('{project_name}', {{
-            relationshipWeightProperty: 'weight'
-        }})
+        CALL gds.louvain.stream('{project_name}')
         YIELD nodeId, communityId
         RETURN gds.util.asNode(nodeId).title AS title, communityId
         ORDER BY communityId, title
         """
         results = session.run(query)
-        
+
         communities: Dict[int, List[str]] = {}
         for r in results:
             community_id = r["communityId"]
@@ -167,24 +152,15 @@ def detect_communities(session: Any, project_name: str = "wikipedia") -> Dict[in
             communities[community_id].append(r["title"])
         return communities
 
-    except Exception:
-        # Fallback: group by simple connectivity
-        query = """
-        MATCH (n:Article)
-        OPTIONAL MATCH (n)-[:LINKS_TO]-(connected)
-        WITH n, count(connected) as connections
-        RETURN n.title AS title, connections % 5 AS communityId
-        ORDER BY communityId, title
-        """
-        results = session.run(query)
-        
-        communities = {}
-        for r in results:
-            community_id = r["communityId"]
-            if community_id not in communities:
-                communities[community_id] = []
-            communities[community_id].append(r["title"])
-        return communities
+    except Exception as e:
+        # No honest approximation of Louvain exists in plain Cypher. The old
+        # fallback grouped articles by degree-mod-5, which fabricated
+        # meaningless "communities" that looked like real output.
+        logger.warning(
+            "GDS Louvain unavailable (%s); community detection requires the "
+            "GDS library — returning no communities.", e
+        )
+        return {}
 
 
 def calculate_centrality(
@@ -202,18 +178,14 @@ def calculate_centrality(
     try:
         if centrality_type == "betweenness":
             query = f"""
-            CALL gds.betweenness.stream('{project_name}', {{
-                relationshipWeightProperty: 'weight'
-            }})
+            CALL gds.betweenness.stream('{project_name}')
             YIELD nodeId, score
             RETURN gds.util.asNode(nodeId).title AS title, score
             ORDER BY score DESC
             """
         else:  # closeness
             query = f"""
-            CALL gds.closeness.stream('{project_name}', {{
-                relationshipWeightProperty: 'weight'
-            }})
+            CALL gds.closeness.stream('{project_name}')
             YIELD nodeId, score
             RETURN gds.util.asNode(nodeId).title AS title, score
             ORDER BY score DESC
@@ -228,8 +200,12 @@ def calculate_centrality(
         except TypeError:
             return []
 
-    except Exception:
-        # Fallback: basic degree centrality
+    except Exception as e:
+        logger.warning(
+            "GDS %s centrality unavailable (%s); falling back to degree "
+            "centrality. Scores are NOT %s values.",
+            centrality_type, e, centrality_type,
+        )
         query = """
         MATCH (n:Article)
         OPTIONAL MATCH (n)-[:LINKS_TO]-(connected)

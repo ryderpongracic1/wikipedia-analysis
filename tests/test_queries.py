@@ -124,11 +124,12 @@ def test_build_shortest_path_query_default_relationship():
     q, p = queries.build_shortest_path_query('Start Article', 'End Article')
     assert "title: $start_title" in q
     assert "title: $end_title" in q
-    # GDS requires internal node ids; the old query passed a property lookup
+    # GDS takes node references; the old query passed a property lookup
     # via gds.util.asNode(...) plus an unsupported relationshipType config key.
-    assert "sourceNode: id(start)" in q
-    assert "targetNode: id(end)" in q
+    assert "sourceNode: start" in q
+    assert "targetNode: end" in q
     assert "relationshipType" not in q
+    assert "relationshipWeightProperty" not in q
     assert p == {"start_title": "Start Article", "end_title": "End Article"}
 
 

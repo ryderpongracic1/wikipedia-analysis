@@ -126,7 +126,21 @@ def create_constraints_and_indexes(session):
         "CREATE INDEX IF NOT EXISTS FOR (c:Category) ON (c.name)"
     ]
     for query in constraints_and_indexes:
-        session.run(query)
+        try:
+            session.run(query)
+        except Exception as e:
+            # A database initialised by the title-keyed importer schema
+            # (import_with_links.py) may already hold an index or constraint
+            # on the same property; Neo4j refuses to layer one on the other.
+            # The MERGE-based import paths work either way, so skip and warn.
+            if any(code in str(e) for code in (
+                "IndexAlreadyExists",
+                "ConstraintAlreadyExists",
+                "EquivalentSchemaRuleAlreadyExists",
+            )):
+                logger.warning("Skipping schema statement (equivalent/blocking schema exists): %s", e)
+            else:
+                raise
 
 def batch_import_nodes(session, node_label: str, nodes_data: List[Dict[str, Any]]):
     if not nodes_data:

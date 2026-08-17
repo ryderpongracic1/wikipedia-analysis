@@ -18,6 +18,14 @@ Fixes over the original implementation:
   ``UNWIND`` instead of one transaction (three round-trips) per article.
 - **Configuration from the environment** via ``load_neo4j_config`` — no
   hardcoded password.
+- **Redirect handling.** Pages carrying a ``<redirect title=.../>`` element
+  or ``#REDIRECT [[Target]]`` wikitext produce a ``REDIRECTS_TO`` edge and
+  ``is_redirect = true`` instead of ordinary ``LINKS_TO`` edges, so redirects
+  (~40% of pages on the full dump) no longer inflate citation counts.
+
+This module supersedes the removed ``import_data.py`` and
+``streaming_import.py`` scripts, which duplicated (broken) subsets of the
+same pipeline.
 """
 
 import re
@@ -39,6 +47,10 @@ BATCH_SIZE = 200
 
 _LINK_RE = re.compile(r"\[\[(.*?)\]\]")
 _CATEGORY_RE = re.compile(r"\[\[Category:(.*?)(?:\|.*?)?\]\]")
+# Redirect pages start with "#REDIRECT [[Target]]" (case-insensitive, may
+# have leading whitespace). Modern dumps also carry a <redirect title=.../>
+# element, which we prefer when present.
+_REDIRECT_RE = re.compile(r"^\s*#REDIRECT\S*\s*\[\[([^|\]#]+)", re.IGNORECASE)
 _SKIP_PREFIXES = ("File:", "Category:", "Image:", "Template:")
 
 
@@ -89,10 +101,39 @@ def iter_pages(xml_file_path: str) -> Iterator[Dict[str, Any]]:
             if not article_id or not title:
                 continue
 
-            links, categories = extract_links_and_categories(
-                text_elem.text if text_elem is not None else ""
-            )
-            yield {"id": article_id, "title": title, "links": links, "categories": categories}
+            ns_elem = _find_by_local_name(elem, "ns")
+            namespace = int(ns_elem.text) if ns_elem is not None and ns_elem.text and ns_elem.text.strip().lstrip("-").isdigit() else 0
+
+            wikitext = text_elem.text if text_elem is not None else ""
+
+            # Redirect detection: prefer the <redirect title=.../> element
+            # (present in modern dumps), fall back to the #REDIRECT wikitext.
+            redirect_target = None
+            redirect_elem = _find_by_local_name(elem, "redirect")
+            if redirect_elem is not None and redirect_elem.get("title"):
+                redirect_target = redirect_elem.get("title").strip()
+            else:
+                m = _REDIRECT_RE.match(wikitext or "")
+                if m:
+                    redirect_target = m.group(1).strip()
+
+            if redirect_target:
+                # A redirect page contributes a REDIRECTS_TO edge, not
+                # ordinary LINKS_TO edges - counting the redirect as a
+                # citation would inflate in-degree and PageRank.
+                yield {
+                    "id": article_id, "title": title, "ns": namespace,
+                    "is_redirect": True, "redirect_target": redirect_target,
+                    "links": [], "categories": [],
+                }
+                continue
+
+            links, categories = extract_links_and_categories(wikitext)
+            yield {
+                "id": article_id, "title": title, "ns": namespace,
+                "is_redirect": False, "redirect_target": None,
+                "links": links, "categories": categories,
+            }
         finally:
             # Works on both stdlib ElementTree and lxml: drop the processed
             # subtree, then prune completed children off the root.
@@ -110,7 +151,7 @@ def import_page_batch(tx, pages: List[Dict[str, Any]]) -> None:
         """
         UNWIND $pages AS page
         MERGE (a:Article {title: page.title})
-        SET a.id = page.id
+        SET a.id = page.id, a.ns = page.ns, a.is_redirect = page.is_redirect
         """,
         pages=pages,
     )
@@ -133,6 +174,15 @@ def import_page_batch(tx, pages: List[Dict[str, Any]]) -> None:
         MERGE (source)-[:BELONGS_TO]->(category)
         """,
         pages=[p for p in pages if p["categories"]],
+    )
+    tx.run(
+        """
+        UNWIND $pages AS page
+        MATCH (source:Article {title: page.title})
+        MERGE (target:Article {title: page.redirect_target})
+        MERGE (source)-[:REDIRECTS_TO]->(target)
+        """,
+        pages=[p for p in pages if p["redirect_target"]],
     )
 
 

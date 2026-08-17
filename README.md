@@ -21,7 +21,7 @@ The pipeline has three phases:
 
 | Phase | Script | What it does |
 |-------|--------|--------------|
-| 1 — Import | `import_with_links.py` | Streams the XML dump (any MediaWiki export version); creates `Article` and `Category` nodes plus `LINKS_TO` and `BELONGS_TO` relationships in batched transactions |
+| 1 — Import | `import_with_links.py` | Streams the XML dump (any MediaWiki export version); creates `Article` and `Category` nodes plus `LINKS_TO`, `BELONGS_TO`, and `REDIRECTS_TO` relationships in batched transactions |
 | 2 — Analysis | `run_analysis.py` | Runs PageRank, betweenness centrality, and shortest-path queries via the Neo4j GDS library |
 | 3 — REST API | `api.py` | Flask server exposing category and article endpoints |
 
@@ -115,9 +115,12 @@ curl "http://127.0.0.1:5000/category/Graph%20theory"
 Blank or whitespace-only category names return `400 Bad Request`.
 
 ## Data Model
-(Article)-[:LINKS_TO]   ->(Article)
-(Article)-[:BELONGS_TO] ->(Category)
-`Article` nodes are keyed by a unique `title` (the identity that wiki links reference) and carry the numeric page `id` as a property; `Category` nodes are keyed by a unique `name`. Merging everything on `title` guarantees a page and any links pointing at it resolve to a single node.
+(Article)-[:LINKS_TO]     ->(Article)
+(Article)-[:BELONGS_TO]   ->(Category)
+(Article)-[:REDIRECTS_TO] ->(Article)
+`Article` nodes are keyed by a unique `title` (the identity that wiki links reference) and carry `id` (numeric page id), `ns` (namespace), and `is_redirect` as properties; `Category` nodes are keyed by a unique `name`. Merging everything on `title` guarantees a page and any links pointing at it resolve to a single node.
+
+Redirect pages (detected via the `<redirect>` element or `#REDIRECT` wikitext) produce a single `REDIRECTS_TO` edge instead of `LINKS_TO` edges, so they do not inflate citation counts or PageRank.
 
 ## Testing
 

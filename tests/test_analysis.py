@@ -148,7 +148,7 @@ def test_find_shortest_path_exists(mock_neo4j_session, monkeypatch):
     expected_path = [{"path": ["Article A", "Article B", "Article C"], "length": 2.0}]
     assert path_results == expected_path
     mock_neo4j_session.run.assert_called_once()
-    assert "CALL gds.shortestPath.bfs.stream('wikipedia'" in mock_neo4j_session.run.call_args[0][0]
+    assert "CALL gds.shortestPath.dijkstra.stream('wikipedia'" in mock_neo4j_session.run.call_args[0][0]
     assert mock_neo4j_session.run.call_args[1]['start_node_title'] == "Article A"
     assert mock_neo4j_session.run.call_args[1]['end_node_title'] == "Article C"
 
@@ -163,7 +163,7 @@ def test_find_shortest_path_not_exists(mock_neo4j_session, monkeypatch):
 
     assert path_results == []
     mock_neo4j_session.run.assert_called_once()
-    assert "CALL gds.shortestPath.bfs.stream('wikipedia'" in mock_neo4j_session.run.call_args[0][0]
+    assert "CALL gds.shortestPath.dijkstra.stream('wikipedia'" in mock_neo4j_session.run.call_args[0][0]
     assert mock_neo4j_session.run.call_args[1]['start_node_title'] == "Article X"
     assert mock_neo4j_session.run.call_args[1]['end_node_title'] == "Article Y"
 
@@ -181,7 +181,7 @@ def test_find_shortest_path_same_node(mock_neo4j_session, monkeypatch):
     expected_path = [{"path": ["Article A"], "length": 0.0}]
     assert path_results == expected_path
     mock_neo4j_session.run.assert_called_once()
-    assert "CALL gds.shortestPath.bfs.stream('wikipedia'" in mock_neo4j_session.run.call_args[0][0]
+    assert "CALL gds.shortestPath.dijkstra.stream('wikipedia'" in mock_neo4j_session.run.call_args[0][0]
     assert mock_neo4j_session.run.call_args[1]['start_node_title'] == "Article A"
     assert mock_neo4j_session.run.call_args[1]['end_node_title'] == "Article A"
 

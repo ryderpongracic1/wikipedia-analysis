@@ -71,14 +71,19 @@ def test_end_to_end_data_import_workflow(populated_neo4j_db):
         """).single()["count"]
         assert redirect_ra == 1
 
-        # Test data integrity: Attempt to import duplicate data
-        # The constraints should prevent duplicate nodes based on 'id'
-        duplicate_articles = [{'id': '1', 'title': 'Article A Duplicate', 'is_redirect': False, 'redirect_title': None}]
+        # Test data integrity: re-importing an existing id must not create a
+        # new node. NOTE: batch_import_nodes is an upsert (MERGE on id, then
+        # SET n += node), so the payload uses the existing title — a changed
+        # title would rename Article A and pollute the session-scoped fixture
+        # every later test reads.
+        duplicate_articles = [{'id': '1', 'title': 'Article A', 'is_redirect': False, 'redirect_title': None}]
         batch_import_nodes(session, "Article", duplicate_articles)
-        
+
         # Verify article count remains the same (due to unique constraint on id)
         new_article_count = session.run("MATCH (a:Article) RETURN count(a) AS count").single()["count"]
         assert new_article_count == article_count
+        # And the node kept its identity
+        assert session.run("MATCH (a:Article {id: '1'}) RETURN a.title AS t").single()["t"] == "Article A"
 
         # Attempt to create a duplicate relationship (MERGE handles this gracefully)
         duplicate_links_to = [{'source_article_id': '1', 'target_article_id': '2'}]
@@ -96,9 +101,9 @@ def test_complete_analysis_pipeline(populated_neo4j_db, gds_available):
         pytest.skip("GDS library not available in this Neo4j instance")
     driver = populated_neo4j_db
     with driver.session() as session:
-        # Ensure the graph is projected for GDS algorithms
-        # This is a simplified projection for testing; in a real scenario,
-        # you might project once for all tests or within a dedicated fixture.
+        # Drop any projection leaked by a previous failed run, then project.
+        # The trailing boolean makes the drop a no-op when absent.
+        session.run("CALL gds.graph.drop('test_graph', false)")
         session.run("""
             CALL gds.graph.project(
                 'test_graph',
@@ -111,40 +116,42 @@ def test_complete_analysis_pipeline(populated_neo4j_db, gds_available):
             )
         """)
 
-        # Test PageRank calculation
-        pagerank_results = calculate_pagerank(session, project_name='test_graph')
-        assert len(pagerank_results) > 0
-        # Basic check: Article A and B should have higher PageRank due to mutual links
-        article_a_pr = next((item['score'] for item in pagerank_results if item['title'] == 'Article A'), 0)
-        article_b_pr = next((item['score'] for item in pagerank_results if item['title'] == 'Article B'), 0)
-        article_c_pr = next((item['score'] for item in pagerank_results if item['title'] == 'Article C'), 0)
-        assert article_a_pr > article_c_pr
-        assert article_b_pr > article_c_pr
+        try:
+            # Test PageRank calculation
+            pagerank_results = calculate_pagerank(session, project_name='test_graph')
+            assert len(pagerank_results) > 0
+            # Basic check: Article A and B should have higher PageRank due to mutual links
+            article_a_pr = next((item['score'] for item in pagerank_results if item['title'] == 'Article A'), 0)
+            article_b_pr = next((item['score'] for item in pagerank_results if item['title'] == 'Article B'), 0)
+            article_c_pr = next((item['score'] for item in pagerank_results if item['title'] == 'Article C'), 0)
+            assert article_a_pr > article_c_pr
+            assert article_b_pr > article_c_pr
 
-        # Test Shortest Path
-        shortest_path_results = find_shortest_path(session, 'Article A', 'Article B', project_name='test_graph')
-        assert len(shortest_path_results) > 0
-        assert shortest_path_results[0]['path'] == ['Article A', 'Article B']
-        assert shortest_path_results[0]['length'] == 1.0 # Assuming default weight of 1
+            # Test Shortest Path
+            shortest_path_results = find_shortest_path(session, 'Article A', 'Article B', project_name='test_graph')
+            assert len(shortest_path_results) > 0
+            assert shortest_path_results[0]['path'] == ['Article A', 'Article B']
+            assert shortest_path_results[0]['length'] == 1.0 # Assuming default weight of 1
 
-        # Test Community Detection
-        community_results = detect_communities(session, project_name='test_graph')
-        assert len(community_results) > 0
-        # Verify that Article A and Article B are likely in the same community
-        # This is a heuristic check, as community detection can be non-deterministic
-        found_a_community = None
-        found_b_community = None
-        for community_id, members in community_results.items():
-            if 'Article A' in members:
-                found_a_community = community_id
-            if 'Article B' in members:
-                found_b_community = community_id
-        assert found_a_community is not None
-        assert found_b_community is not None
-        assert found_a_community == found_b_community # A and B should be in the same community
+            # Test Community Detection
+            community_results = detect_communities(session, project_name='test_graph')
+            assert len(community_results) > 0
+            # Verify that Article A and Article B are likely in the same community
+            # This is a heuristic check, as community detection can be non-deterministic
+            found_a_community = None
+            found_b_community = None
+            for community_id, members in community_results.items():
+                if 'Article A' in members:
+                    found_a_community = community_id
+                if 'Article B' in members:
+                    found_b_community = community_id
+            assert found_a_community is not None
+            assert found_b_community is not None
+            assert found_a_community == found_b_community # A and B should be in the same community
 
-        # Clean up the projected graph
-        session.run("CALL gds.graph.drop('test_graph')")
+        finally:
+            # Always drop the projection so reruns start clean.
+            session.run("CALL gds.graph.drop('test_graph', false)")
 
 @pytest.mark.integration
 def test_data_export_functionality(populated_neo4j_db, tmp_path, gds_available):
@@ -155,6 +162,7 @@ def test_data_export_functionality(populated_neo4j_db, tmp_path, gds_available):
         pytest.skip("GDS library not available in this Neo4j instance")
     driver = populated_neo4j_db
     with driver.session() as session:
+        session.run("CALL gds.graph.drop('export_graph', false)")
         session.run("""
             CALL gds.graph.project(
                 'export_graph',

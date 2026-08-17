@@ -86,18 +86,19 @@ def build_shortest_path_query(start_title, end_title, relationship_type='LINKS_T
     filter must be applied at graph-projection time (gds.graph.project); GDS
     stream config does not accept a relationshipType key.
     """
-    # NOTE: GDS expects internal node ids (id(node)), and the relationship
-    # type filter must be applied when the graph is projected, not in the
-    # algorithm config. The previous version passed gds.util.asNode(node).id
-    # (a property lookup on the wrong function) plus an unsupported
-    # 'relationshipType' key, so the call always failed on a real GDS install.
+    # NOTE: GDS takes node references for sourceNode/targetNode, and the
+    # relationship type filter must be applied when the graph is projected,
+    # not in the algorithm config. The previous version passed
+    # gds.util.asNode(node).id (a property lookup on the wrong function)
+    # plus an unsupported 'relationshipType' key, so the call always failed
+    # on a real GDS install. No relationshipWeightProperty either: the
+    # importer builds an unweighted graph.
     query = (
         "MATCH (start:Article {title: $start_title}), "
         "(end:Article {title: $end_title}) "
         "CALL gds.shortestPath.dijkstra.stream('wikiGraph', { "
-        "sourceNode: id(start), "
-        "targetNode: id(end), "
-        "relationshipWeightProperty: 'weight' "
+        "sourceNode: start, "
+        "targetNode: end "
         "}) YIELD index, sourceNode, targetNode, totalCost, nodeIds, costs, path "
         "RETURN "
         "gds.util.asNode(sourceNode).title AS source, "

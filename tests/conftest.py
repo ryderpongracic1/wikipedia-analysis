@@ -231,12 +231,19 @@ def populated_neo4j_db(neo4j_driver):
 @pytest.fixture(scope="session")
 def gds_available(neo4j_driver):
     """Returns True if the GDS library is installed in the connected Neo4j instance."""
-    try:
-        with neo4j_driver.session() as session:
+    # GDS 2.x exposes gds.version() as a function; GDS 1.x as a procedure.
+    # Try both so the availability check works against either major version.
+    with neo4j_driver.session() as session:
+        try:
+            session.run("RETURN gds.version() AS version").single()
+            return True
+        except Exception:
+            pass
+        try:
             session.run("CALL gds.version() YIELD version RETURN version").single()
-        return True
-    except Exception:
-        return False
+            return True
+        except Exception:
+            return False
 
 @pytest.fixture
 def sample_xml_content():

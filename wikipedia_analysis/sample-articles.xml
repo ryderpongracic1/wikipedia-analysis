@@ -27,4 +27,12 @@
       <text>A graph is the core object of [[Graph theory]]. [[Category:Mathematics]]</text>
     </revision>
   </page>
+  <page>
+    <title>Graphs</title>
+    <id>5</id>
+    <redirect title="Graph theory" />
+    <revision>
+      <text>#REDIRECT [[Graph theory]]</text>
+    </revision>
+  </page>
 </mediawiki>
