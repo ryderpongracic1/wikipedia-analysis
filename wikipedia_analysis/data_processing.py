@@ -62,100 +62,110 @@ def _find_child_by_localname(parent: Any, name: str) -> Optional[Any]:
 # Parsing & Transformation Logic
 # ==========================================
 
+# Pre-compiled once; the original recompiled this regex for every article.
+_WIKILINK_RE = re.compile(r'\[\[([^|\]]+)(?:\|[^\]]+)?\]\]')
+
+# Read the dump in bounded chunks so memory stays flat regardless of file size.
+_CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
+
+def _extract_article(page_elem: Any) -> Optional[Dict[str, Any]]:
+    """Extract article dict (id, title, url, links) from a <page> element."""
+    id_elem = _find_child_by_localname(page_elem, 'id')
+    title_elem = _find_child_by_localname(page_elem, 'title')
+    revision_elem = _find_child_by_localname(page_elem, 'revision')
+    text_elem = _find_child_by_localname(revision_elem, 'text') if revision_elem is not None else None
+
+    if id_elem is None or title_elem is None:
+        return None
+
+    title = clean_title(title_elem.text)
+    article_data: Dict[str, Any] = {
+        'id': id_elem.text,
+        'title': title,
+        'url': f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}",
+    }
+
+    links = set()
+    if text_elem is not None and text_elem.text:
+        for match in _WIKILINK_RE.finditer(text_elem.text):
+            link_title = clean_title(match.group(1))
+            if link_title and link_title != title:
+                links.add(link_title)
+    article_data['links'] = list(links)
+    return article_data
+
+
 def parse_dump_file(xml_file_path: str) -> Generator[Dict[str, Any], None, None]:
     """
     Parses a Wikipedia XML dump file and yields article data.
     Extracts article ID, title, and links.
 
     Robust parsing strategy:
-    1. Read via builtin open so tests that patch builtins.open work.
-    2. Attempt streaming parse with lxml.iterparse (fast).
-    3. If streaming parse raises XMLSyntaxError (malformed document), fall back
-       to extracting <page>...</page> fragments and parsing those individually.
+    1. Stream the file in bounded chunks through an incremental parser, so
+       memory use is flat even for the full multi-gigabyte Wikipedia dump.
+    2. If the document is malformed (XMLSyntaxError), fall back to extracting
+       <page>...</page> fragments and parsing those individually. Only this
+       fallback path reads the whole file into memory.
     """
-    try:
-        with open(xml_file_path, 'r', encoding='utf-8') as fh:
-            content = fh.read()
-    except FileNotFoundError:
-        raise
-
-    # Track which pages we've yielded so fallback won't duplicate.
+    # Track which pages we have yielded so the fallback will not duplicate.
     seen_ids: Set[str] = set()
 
-    # --- Strategy 1: Streaming Parse ---
-    try:
-        xml_bytes = BytesIO(content.encode('utf-8'))
-        for event, elem in ET.iterparse(xml_bytes, events=('end',)):
-            if _local_name(elem.tag) != 'page':
-                continue
-            try:
-                id_elem = _find_child_by_localname(elem, 'id')
-                title_elem = _find_child_by_localname(elem, 'title')
-                revision_elem = _find_child_by_localname(elem, 'revision')
-                text_elem = _find_child_by_localname(revision_elem, 'text') if revision_elem is not None else None
+    # --- Strategy 1: Streaming Parse (bounded memory) ---
+    parse_error: Optional[ET.XMLSyntaxError] = None
+    with open(xml_file_path, 'r', encoding='utf-8') as fh:
+        parser = ET.XMLPullParser(events=('end',))
+        eof = False
+        while not eof:
+            chunk = fh.read(_CHUNK_SIZE)
+            if not chunk:
+                eof = True
+                try:
+                    parser.close()
+                except ET.XMLSyntaxError as e:
+                    parse_error = e
+            else:
+                data = chunk.encode('utf-8') if isinstance(chunk, str) else chunk
+                try:
+                    parser.feed(data)
+                except ET.XMLSyntaxError as e:
+                    parse_error = e
 
-                if id_elem is not None and title_elem is not None:
-                    article_data = {}
-                    article_data['id'] = id_elem.text
-                    article_data['title'] = clean_title(title_elem.text)
-                    article_data['url'] = f"https://en.wikipedia.org/wiki/{article_data['title'].replace(' ', '_')}"
+            # Drain any events produced before a potential error.
+            for _event, elem in parser.read_events():
+                if _local_name(elem.tag) != 'page':
+                    continue
+                try:
+                    article_data = _extract_article(elem)
+                    if article_data is not None:
+                        seen_ids.add(article_data['id'])
+                        yield article_data
+                finally:
+                    # Clear processed subtree to keep memory bounded.
+                    elem.clear()
+                    while elem.getprevious() is not None:
+                        del elem.getparent()[0]
 
-                    links = []
-                    if text_elem is not None and text_elem.text:
-                        link_pattern = re.compile(r'\[\[([^|\]]+)(?:\|[^\]]+)?\]\]')
-                        for match in link_pattern.finditer(text_elem.text):
-                            link_title = clean_title(match.group(1))
-                            if link_title and link_title != article_data['title']:
-                                links.append(link_title)
-                    
-                    article_data['links'] = list(set(links))
-                    seen_ids.add(article_data['id'])
-                    yield article_data
-            finally:
-                # Clear element to save memory
-                elem.clear()
-                while elem.getprevious() is not None:
-                    del elem.getparent()[0]
+            if parse_error is not None:
+                break
+
+    if parse_error is None:
         return
-    except ET.XMLSyntaxError as e:
-        # Log the streaming parse error and fall back to fragment parsing.
-        logging.getLogger(__name__).error("XMLSyntaxError during streaming parse: %s", e)
-        # Proceed to fallback below
-        pass
 
-    # --- Strategy 2: Fallback Fragment Parsing ---
-    # Extract page fragments and parse individually
+    logging.getLogger(__name__).error(
+        "XMLSyntaxError during streaming parse: %s", parse_error
+    )
+
+    # --- Strategy 2: Fallback Fragment Parsing (malformed documents only) ---
+    with open(xml_file_path, 'r', encoding='utf-8') as fh:
+        content = fh.read()
     page_fragments = re.findall(r"<page.*?>.*?</page>", content, flags=re.DOTALL)
     for frag in page_fragments:
         try:
             page_elem = ET.fromstring(frag)
-            id_elem = _find_child_by_localname(page_elem, 'id')
-            title_elem = _find_child_by_localname(page_elem, 'title')
-            revision_elem = _find_child_by_localname(page_elem, 'revision')
-            text_elem = _find_child_by_localname(revision_elem, 'text') if revision_elem is not None else None
-
-            if id_elem is None or title_elem is None:
+            article_data = _extract_article(page_elem)
+            if article_data is None or article_data['id'] in seen_ids:
                 continue
-
-            # Skip pages already yielded by streaming parse to avoid duplicates
-            frag_id = id_elem.text
-            if frag_id in seen_ids:
-                continue
-
-            article_data = {}
-            article_data['id'] = frag_id
-            article_data['title'] = clean_title(title_elem.text)
-            article_data['url'] = f"https://en.wikipedia.org/wiki/{article_data['title'].replace(' ', '_')}"
-            
-            links = []
-            if text_elem is not None and text_elem.text:
-                link_pattern = re.compile(r'\[\[([^|\]]+)(?:\|[^\]]+)?\]\]')
-                for match in link_pattern.finditer(text_elem.text):
-                    link_title = clean_title(match.group(1))
-                    if link_title and link_title != article_data['title']:
-                        links.append(link_title)
-            
-            article_data['links'] = list(set(links))
             seen_ids.add(article_data['id'])
             yield article_data
         except ET.XMLSyntaxError:

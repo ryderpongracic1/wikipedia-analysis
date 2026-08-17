@@ -1,3 +1,9 @@
+import os
+import sys
+
+if __package__ in (None, ""):  # allow running directly as a script
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from neo4j import GraphDatabase
 from wikipedia_analysis.config import load_neo4j_config
 
@@ -11,8 +17,10 @@ def find_most_authoritative_articles(session, limit=20):
     print(f"\n--- Finding Top {limit} Most Authoritative Articles (by incoming links) ---")
     query = """
     MATCH (a:Article)
-    // Calculate the in-degree by counting incoming :LINKS_TO relationships
-    WITH a, size((a)<-[:LINKS_TO]-()) as in_degree
+    // Count incoming :LINKS_TO relationships. OPTIONAL MATCH + count(r) works
+    // on both Neo4j 4.4 and 5.x (size() on patterns was removed in 5.0).
+    OPTIONAL MATCH (a)<-[r:LINKS_TO]-()
+    WITH a, count(r) as in_degree
     // Return the title and the score
     RETURN a.title AS article, in_degree
     ORDER BY in_degree DESC
@@ -100,7 +108,7 @@ def find_knowledge_path(session, start_article, end_article):
         print(f"No path found (within 10 steps) between '{start_article}' and '{end_article}'.")
 
 # --- Main Execution ---
-if __name__ == "__main__":
+def main():
     cfg = load_neo4j_config()
     with GraphDatabase.driver(cfg.uri, auth=(cfg.user, cfg.password)) as driver:
         driver.verify_connectivity()
@@ -108,11 +116,18 @@ if __name__ == "__main__":
             # Run the analyses
             find_most_authoritative_articles(session)
             
-            # Note: The PageRank functions require Neo4j GDS library.
-            # If you don't have it, you can comment out the next two function calls.
-            calculate_influence_score(session)
-            find_top_influencers(session)
+            # The PageRank functions require the Neo4j GDS library.
+            # Degrade gracefully instead of crashing when it is not installed.
+            try:
+                calculate_influence_score(session)
+                find_top_influencers(session)
+            except Exception as e:
+                print(f"\nSkipping PageRank analysis (Neo4j GDS library unavailable?): {e}")
 
             # Find a path between two interesting topics
             find_knowledge_path(session, "Graph theory", "Social network")
             find_knowledge_path(session, "United States", "World War II")
+
+
+if __name__ == "__main__":
+    main()

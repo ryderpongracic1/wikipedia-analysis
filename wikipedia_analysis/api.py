@@ -1,4 +1,10 @@
 import logging
+import os
+import sys
+
+if __package__ in (None, ""):  # allow running directly as a script
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from typing import List
 from flask import Flask, jsonify, Response
 from neo4j import GraphDatabase, Driver, Session
@@ -37,9 +43,9 @@ def get_categories() -> Response:
             result = session.run(query)
             categories: List[str] = [record["categoryName"] for record in result]
         return jsonify(categories)
-    except Exception as e:
-        logger.error(f"Error fetching categories: {e}")
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("Error fetching categories")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route("/category/<category_name>", methods=["GET"])
 def get_articles_in_category(category_name: str) -> Response:
@@ -56,9 +62,15 @@ def get_articles_in_category(category_name: str) -> Response:
             result = session.run(query, category_name=category_name)
             articles: List[str] = [record["articleTitle"] for record in result]
         return jsonify(articles)
-    except Exception as e:
-        logger.error(f"Error fetching articles for category '{category_name}': {e}")
-        return jsonify({"error": str(e)}), 500
+    except Exception:
+        logger.exception("Error fetching articles for category '%s'", category_name)
+        return jsonify({"error": "Internal server error"}), 500
+
+def main() -> None:
+    # Debug mode exposes the Werkzeug remote-debugger console; opt-in only.
+    debug = os.getenv("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
+    app.run(debug=debug)
+
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    main()

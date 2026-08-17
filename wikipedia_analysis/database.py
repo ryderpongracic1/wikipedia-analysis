@@ -48,89 +48,20 @@ class Neo4jConnectionManager:
         logger.info("Neo4j connection closed.")
 
     def get_driver(self) -> Optional[Driver]:
+        """Return the underlying driver, creating it lazily if needed.
+
+        Returns None if the manager was closed or a previous connect() failed,
+        so callers can distinguish "never connected" from "unusable".
         """
-        Return a driver-like object. Wrap the underlying driver so that when tests
-        provide mocked session/transaction context managers we can instrument the
-        transaction context manager's __exit__ to call commit()/rollback() on the
-        transaction object (tests expect commit/rollback to have been called).
-        """
-        # If we previously closed the manager, do not recreate a driver.
         if getattr(self, "_closed", False):
             return None
         if getattr(self, "_connect_failed", False):
             return None
         if self._driver is None:
-            # Lazily create driver without performing connectivity verification so tests can
-            # patch GraphDatabase.driver and provide a mock driver that may not implement verify_connectivity
+            # Lazily create the driver without connectivity verification;
+            # call connect() first if verification is required.
             self._driver = GraphDatabase.driver(self._uri, auth=(self._username, self._password))
-    
-        # If driver is a mock that already provides context-managed sessions, wrap it so
-        # we can instrument transaction context managers to call commit/rollback as expected by tests.
-        real_driver = self._driver
-    
-        class DriverWrapper:
-            def __init__(self, real_driver):
-                self._real_driver = real_driver
-    
-            def session(self, *args, **kwargs):
-                real_session_cm = self._real_driver.session(*args, **kwargs)
-    
-                class SessionCM:
-                    def __enter__(self_inner):
-                        session_obj = real_session_cm.__enter__()
-    
-                        # Instrument the begin_transaction context manager on the session object
-                        try:
-                            begin_cm = session_obj.begin_transaction.return_value
-    
-                            def begin_cm_exit(self, exc_type, exc, tb):
-                                # Try to get the transaction object that __enter__ would return
-                                tx_obj = None
-                                try:
-                                    # If the test set a return value on __enter__, use it
-                                    tx_obj = getattr(self.__enter__, "return_value", None)
-                                except Exception:
-                                    tx_obj = None
-    
-                                # Fallback: try to call __enter__ if no return_value is defined (best-effort)
-                                if tx_obj is None:
-                                    try:
-                                        tx_obj = self.__enter__()
-                                    except Exception:
-                                        tx_obj = None
-    
-                                if exc_type is None:
-                                    if hasattr(tx_obj, "commit"):
-                                        try:
-                                            tx_obj.commit()
-                                        except Exception:
-                                            pass
-                                else:
-                                    if hasattr(tx_obj, "rollback"):
-                                        try:
-                                            tx_obj.rollback()
-                                        except Exception:
-                                            pass
-                                # Returning False ensures any exception is propagated
-                                return False
-    
-                            # Attach our __exit__ to the begin_transaction context manager
-                            begin_cm.__exit__ = begin_cm_exit
-                        except Exception:
-                            # If instrumentation fails, ignore and proceed
-                            pass
-    
-                        return session_obj
-    
-                    def __exit__(self_inner, exc_type, exc, tb):
-                        return real_session_cm.__exit__(exc_type, exc, tb)
-    
-                return SessionCM()
-    
-            def __getattr__(self, name):
-                return getattr(self._real_driver, name)
-    
-        return DriverWrapper(real_driver)
+        return self._driver
 
     def __enter__(self):
         self.connect()

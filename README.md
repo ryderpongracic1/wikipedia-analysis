@@ -21,7 +21,7 @@ The pipeline has three phases:
 
 | Phase | Script | What it does |
 |-------|--------|--------------|
-| 1 — Import | `import_with_links.py` | Parses the XML dump; creates `Article` and `Category` nodes plus `LINKS_TO`, `BELONGS_TO`, and `REDIRECTS_TO` relationships |
+| 1 — Import | `import_with_links.py` | Streams the XML dump (any MediaWiki export version); creates `Article` and `Category` nodes plus `LINKS_TO` and `BELONGS_TO` relationships in batched transactions |
 | 2 — Analysis | `run_analysis.py` | Runs PageRank, betweenness centrality, and shortest-path queries via the Neo4j GDS library |
 | 3 — REST API | `api.py` | Flask server exposing category and article endpoints |
 
@@ -72,7 +72,7 @@ caffeinate python wikipedia_analysis/import_with_links.py
 python wikipedia_analysis/import_with_links.py wikipedia_analysis/sample-articles.xml
 ```
 
-The importer prints each article title and its link count as it runs.
+The importer commits pages in batches of 200 and prints a progress line per batch. Re-running it is idempotent (all writes use `MERGE`).
 
 ### 4. Run the network analysis
 
@@ -94,7 +94,7 @@ Start the Flask development server:
 python wikipedia_analysis/api.py
 ```
 
-Server listens on `http://127.0.0.1:5000/`.
+Server listens on `http://127.0.0.1:5000/`. Debug mode (Werkzeug remote debugger) is off by default; set `FLASK_DEBUG=1` to enable it for local development only.
 
 ### Endpoints
 
@@ -115,10 +115,9 @@ curl "http://127.0.0.1:5000/category/Graph%20theory"
 Blank or whitespace-only category names return `400 Bad Request`.
 
 ## Data Model
-(Article)-[:LINKS_TO]     ->(Article)
-(Article)-[:BELONGS_TO]   ->(Category)
-(Article)-[:REDIRECTS_TO] ->(Article)
-Both `Article` and `Category` carry a unique `id` property backed by a database constraint. Articles also store `title`, `namespace`, `length`, `is_redirect`, and `is_minor`.
+(Article)-[:LINKS_TO]   ->(Article)
+(Article)-[:BELONGS_TO] ->(Category)
+`Article` nodes are keyed by a unique `title` (the identity that wiki links reference) and carry the numeric page `id` as a property; `Category` nodes are keyed by a unique `name`. Merging everything on `title` guarantees a page and any links pointing at it resolve to a single node.
 
 ## Testing
 

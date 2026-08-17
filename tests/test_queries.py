@@ -124,13 +124,19 @@ def test_build_shortest_path_query_default_relationship():
     q, p = queries.build_shortest_path_query('Start Article', 'End Article')
     assert "title: $start_title" in q
     assert "title: $end_title" in q
-    assert "relationshipType: 'LINKS_TO'" in q
+    # GDS requires internal node ids; the old query passed a property lookup
+    # via gds.util.asNode(...) plus an unsupported relationshipType config key.
+    assert "sourceNode: id(start)" in q
+    assert "targetNode: id(end)" in q
+    assert "relationshipType" not in q
     assert p == {"start_title": "Start Article", "end_title": "End Article"}
 
 
 def test_build_shortest_path_query_custom_relationship():
+    # relationship_type is accepted for API compatibility but must not leak
+    # into the GDS config (filtering happens at graph-projection time).
     q, p = queries.build_shortest_path_query('Start Article', 'End Article', relationship_type='CUSTOM_REL')
-    assert "relationshipType: 'CUSTOM_REL'" in q
+    assert "relationshipType" not in q
     assert p == {"start_title": "Start Article", "end_title": "End Article"}
 
 

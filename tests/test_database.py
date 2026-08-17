@@ -177,44 +177,26 @@ def test_batch_import_relationships_empty_list(mock_neo4j_session):
     batch_import_relationships(mock_neo4j_session, "LINKS_TO", "Article", "Article", "from_id_prop", "to_id_prop", [])
     mock_neo4j_session.run.assert_not_called()
 
-# Test transaction handling and rollback scenarios
-def test_transaction_success(mock_config):
+# Transaction commit/rollback semantics are provided by the neo4j driver
+# itself and are exercised against a real database in the integration tests.
+# The unit tests below verify the connection manager's own contract.
+def test_get_driver_reuses_instance(mock_config):
     with patch('neo4j.GraphDatabase.driver') as mock_driver:
-        mock_driver_instance = MagicMock()
-        mock_session = MagicMock()
-        mock_transaction = Mock()
-
-        mock_driver.return_value = mock_driver_instance
-        mock_driver_instance.session.return_value.__enter__.return_value = mock_session
-        mock_session.begin_transaction.return_value.__enter__.return_value = mock_transaction
-
+        mock_driver.return_value = MagicMock()
         manager = Neo4jConnectionManager(mock_config.NEO4J_URI, mock_config.NEO4J_USER, mock_config.NEO4J_PASSWORD)
-        with manager.get_driver().session() as session:
-            with session.begin_transaction() as tx:
-                tx.run("CREATE (n:Test {name: 'Success'})")
-            
-            mock_transaction.commit.assert_called_once()
-            mock_transaction.rollback.assert_not_called()
+        d1 = manager.get_driver()
+        d2 = manager.get_driver()
+        assert d1 is d2
+        mock_driver.assert_called_once()
 
-def test_transaction_rollback_on_failure(mock_config):
+def test_get_driver_lazy_creation_without_connect(mock_config):
     with patch('neo4j.GraphDatabase.driver') as mock_driver:
-        mock_driver_instance = MagicMock()
-        mock_session = MagicMock()
-        mock_transaction = Mock()
-
-        mock_driver.return_value = mock_driver_instance
-        mock_driver_instance.session.return_value.__enter__.return_value = mock_session
-        mock_session.begin_transaction.return_value.__enter__.return_value = mock_transaction
-        mock_transaction.run.side_effect = Exception("Transaction failed")
-
+        mock_driver.return_value = MagicMock()
         manager = Neo4jConnectionManager(mock_config.NEO4J_URI, mock_config.NEO4J_USER, mock_config.NEO4J_PASSWORD)
-        with pytest.raises(Exception, match="Transaction failed"):
-            with manager.get_driver().session() as session:
-                with session.begin_transaction() as tx:
-                    tx.run("CREATE (n:Test {name: 'Failure'})")
-        
-        mock_transaction.rollback.assert_called_once()
-        mock_transaction.commit.assert_not_called()
+        assert manager.get_driver() is not None
+        mock_driver.assert_called_once_with(
+            mock_config.NEO4J_URI, auth=(mock_config.NEO4J_USER, mock_config.NEO4J_PASSWORD)
+        )
 
 # Data Integrity Tests (Conceptual, as mocking doesn't fully simulate DB constraints)
 # These tests primarily verify that the correct Cypher is sent to enforce integrity.

@@ -1,29 +1,30 @@
-<articles>
-    <article>
-        <title>Article 1</title>
-        <url>http://example.com/article1</url>
-        <extract>This is the extract for article 1.</extract>
-        <categories>
-            <category>Category A</category>
-            <category>Category B</category>
-        </categories>
-    </article>
-    <article>
-        <title>Article 2</title>
-        <url>http://example.com/article2</url>
-        <extract>This is the extract for article 2.</extract>
-        <categories>
-            <category>Category B</category>
-            <category>Category C</category>
-        </categories>
-    </article>
-    <article>
-        <title>Article 3</title>
-        <url>http://example.com/article3</url>
-        <extract>This is the extract for article 3.</extract>
-        <categories>
-            <category>Category A</category>
-            <category>Category C</category>
-        </categories>
-    </article>
-</articles>
+<mediawiki xmlns="http://www.mediawiki.org/xml/export-0.11/" xml:lang="en">
+  <page>
+    <title>Graph theory</title>
+    <id>1</id>
+    <revision>
+      <text>Graph theory studies [[Graph (discrete mathematics)|graphs]]. It underpins [[Network science]] and the analysis of a [[Social network]]. [[Category:Mathematics]]</text>
+    </revision>
+  </page>
+  <page>
+    <title>Network science</title>
+    <id>2</id>
+    <revision>
+      <text>Network science applies [[Graph theory]] to real systems such as a [[Social network]]. [[Category:Mathematics]] [[Category:Systems science]]</text>
+    </revision>
+  </page>
+  <page>
+    <title>Social network</title>
+    <id>3</id>
+    <revision>
+      <text>A social network is a structure studied with [[Graph theory]] and [[Network science]]. [[Category:Sociology]]</text>
+    </revision>
+  </page>
+  <page>
+    <title>Graph (discrete mathematics)</title>
+    <id>4</id>
+    <revision>
+      <text>A graph is the core object of [[Graph theory]]. [[Category:Mathematics]]</text>
+    </revision>
+  </page>
+</mediawiki>

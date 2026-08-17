@@ -80,17 +80,24 @@ def build_pagerank_query(max_iterations=20, damping_factor=0.85):
 def build_shortest_path_query(start_title, end_title, relationship_type='LINKS_TO'):
     """
     Builds a parameterized Cypher query for shortest path between two articles.
-    Returns (query_string, params_dict). relationship_type is not parameterizable
-    in GDS config so remains interpolated.
+    Returns (query_string, params_dict).
+
+    The `relationship_type` argument is retained for API compatibility but the
+    filter must be applied at graph-projection time (gds.graph.project); GDS
+    stream config does not accept a relationshipType key.
     """
+    # NOTE: GDS expects internal node ids (id(node)), and the relationship
+    # type filter must be applied when the graph is projected, not in the
+    # algorithm config. The previous version passed gds.util.asNode(node).id
+    # (a property lookup on the wrong function) plus an unsupported
+    # 'relationshipType' key, so the call always failed on a real GDS install.
     query = (
         "MATCH (start:Article {title: $start_title}), "
         "(end:Article {title: $end_title}) "
         "CALL gds.shortestPath.dijkstra.stream('wikiGraph', { "
-        "sourceNode: gds.util.asNode(start).id, "
-        "targetNode: gds.util.asNode(end).id, "
-        "relationshipWeightProperty: 'weight', "
-        f"relationshipType: '{relationship_type}' "
+        "sourceNode: id(start), "
+        "targetNode: id(end), "
+        "relationshipWeightProperty: 'weight' "
         "}) YIELD index, sourceNode, targetNode, totalCost, nodeIds, costs, path "
         "RETURN "
         "gds.util.asNode(sourceNode).title AS source, "
