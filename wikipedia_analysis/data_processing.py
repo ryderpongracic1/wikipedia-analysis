@@ -3,7 +3,7 @@
 import lxml.etree as ET
 import re
 import logging
-from typing import Generator, Dict, Any, Optional, List, Set, Union
+from typing import Generator, Dict, Any, Optional, List, Union
 from io import BytesIO
 
 # Configure logging
@@ -108,8 +108,13 @@ def parse_dump_file(xml_file_path: str) -> Generator[Dict[str, Any], None, None]
        <page>...</page> fragments and parsing those individually. Only this
        fallback path reads the whole file into memory.
     """
-    # Track which pages we have yielded so the fallback will not duplicate.
-    seen_ids: Set[str] = set()
+    # Count pages yielded by the streaming pass so the fallback will not
+    # duplicate them. A counter (instead of a set of every article id) keeps
+    # memory O(1) on the full ~7M-article dump: both the streaming parser and
+    # the fragment regex walk pages in document order, and the document is
+    # well-formed up to the error point, so the first N valid fragments are
+    # exactly the N pages already yielded.
+    yielded_count = 0
 
     # --- Strategy 1: Streaming Parse (bounded memory) ---
     parse_error: Optional[ET.XMLSyntaxError] = None
@@ -138,7 +143,7 @@ def parse_dump_file(xml_file_path: str) -> Generator[Dict[str, Any], None, None]
                 try:
                     article_data = _extract_article(elem)
                     if article_data is not None:
-                        seen_ids.add(article_data['id'])
+                        yielded_count += 1
                         yield article_data
                 finally:
                     # Clear processed subtree to keep memory bounded.
@@ -160,13 +165,17 @@ def parse_dump_file(xml_file_path: str) -> Generator[Dict[str, Any], None, None]
     with open(xml_file_path, 'r', encoding='utf-8') as fh:
         content = fh.read()
     page_fragments = re.findall(r"<page.*?>.*?</page>", content, flags=re.DOTALL)
+    valid_fragments_seen = 0
     for frag in page_fragments:
         try:
             page_elem = ET.fromstring(frag)
             article_data = _extract_article(page_elem)
-            if article_data is None or article_data['id'] in seen_ids:
+            if article_data is None:
                 continue
-            seen_ids.add(article_data['id'])
+            valid_fragments_seen += 1
+            if valid_fragments_seen <= yielded_count:
+                # Already yielded by the streaming pass.
+                continue
             yield article_data
         except ET.XMLSyntaxError:
             # Log the fragment that failed to parse so tests can assert on log contents

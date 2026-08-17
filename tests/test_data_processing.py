@@ -282,3 +282,25 @@ def test_transform_to_redirects_to_relationship():
     assert rel == {'source_id': '4', 'target_title': 'Article A'}
     assert transform_to_redirects_to_relationship(None, 'Article') is None
     assert transform_to_redirects_to_relationship('4', None) is None
+
+def test_parse_dump_file_fallback_does_not_duplicate_streamed_pages(tmp_path):
+    """Malformed dump: pages yielded by the streaming pass must not be
+    re-yielded by the fragment fallback (counter-based skip, no id set)."""
+    xml = """
+    <mediawiki>
+        <page><title>First</title><id>1</id><revision><text>[[X]]</text></revision></page>
+        <page><title>Second</title><id>2</id><revision><text>[[Y]]</text></revision></page>
+        <page>
+            <title>Broken</title>
+            <id>3</id>
+            <revision><text>unclosed
+        </page>
+    </mediawiki>
+    """
+    f = tmp_path / "malformed.xml"
+    f.write_text(xml, encoding="utf-8")
+    articles = list(parse_dump_file(str(f)))
+    ids = [a["id"] for a in articles]
+    assert ids.count("1") == 1
+    assert ids.count("2") == 1
+    assert "3" not in ids

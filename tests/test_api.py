@@ -101,3 +101,48 @@ def test_get_articles_in_category_db_error(client):
         resp = client.get("/category/Physics")
     assert resp.status_code == 500
     assert "error" in json.loads(resp.data)
+
+
+# ---------------------------------------------------------------------------
+# Pagination
+# ---------------------------------------------------------------------------
+
+def test_get_categories_passes_pagination_params(client):
+    mock_sess = _mock_session([{"categoryName": "A"}])
+    with patch("wikipedia_analysis.api.get_db_session", return_value=mock_sess):
+        resp = client.get("/categories?limit=5&offset=10")
+    assert resp.status_code == 200
+    args, kwargs = mock_sess.run.call_args
+    assert "SKIP $offset LIMIT $limit" in args[0]
+    assert kwargs["limit"] == 5
+    assert kwargs["offset"] == 10
+
+
+def test_get_categories_default_pagination(client):
+    mock_sess = _mock_session([])
+    with patch("wikipedia_analysis.api.get_db_session", return_value=mock_sess):
+        resp = client.get("/categories")
+    assert resp.status_code == 200
+    _, kwargs = mock_sess.run.call_args
+    assert kwargs["limit"] == 100
+    assert kwargs["offset"] == 0
+
+
+@pytest.mark.parametrize("qs", [
+    "limit=0", "limit=-1", "limit=1001", "offset=-1", "limit=abc", "offset=1.5",
+])
+def test_pagination_param_validation(client, qs):
+    resp = client.get(f"/categories?{qs}")
+    assert resp.status_code == 400
+    assert "error" in json.loads(resp.data)
+
+
+def test_get_articles_in_category_passes_pagination_params(client):
+    mock_sess = _mock_session([{"articleTitle": "T"}])
+    with patch("wikipedia_analysis.api.get_db_session", return_value=mock_sess):
+        resp = client.get("/category/Physics?limit=2&offset=4")
+    assert resp.status_code == 200
+    args, kwargs = mock_sess.run.call_args
+    assert "SKIP $offset LIMIT $limit" in args[0]
+    assert kwargs["limit"] == 2
+    assert kwargs["offset"] == 4

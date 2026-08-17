@@ -101,8 +101,12 @@ Server listens on `http://127.0.0.1:5000/`. Debug mode (Werkzeug remote debugger
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/` | Health check |
-| `GET` | `/categories` | All unique category names |
-| `GET` | `/category/<name>` | Articles that belong to a category |
+| `GET` | `/categories` | Unique category names (paginated) |
+| `GET` | `/category/<name>` | Articles that belong to a category (paginated) |
+
+Both list endpoints accept `?limit=` (default 100, max 1000) and `?offset=`
+(default 0); results are ordered by name so pages are stable. Invalid values
+return `400 Bad Request`.
 
 ```bash
 # List all categories
@@ -110,6 +114,9 @@ curl http://127.0.0.1:5000/categories
 
 # Articles in a specific category
 curl "http://127.0.0.1:5000/category/Graph%20theory"
+
+# Second page of 50 categories
+curl "http://127.0.0.1:5000/categories?limit=50&offset=50"
 ```
 
 Blank or whitespace-only category names return `400 Bad Request`.
